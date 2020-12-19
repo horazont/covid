@@ -4,6 +4,7 @@ import functools
 import itertools
 import re
 import typing
+import sys
 
 from datetime import datetime, timedelta
 
@@ -217,7 +218,7 @@ def datebinned_items(f):
         day_bin = sample.timestamp.date()
         samples.setdefault(day_bin, []).append(sample)
         if i % 10000 == 0:
-            print(f"proc: {i:>9d}", end="\r")
+            print(f"proc: {i:>9d}", end="\r", file=sys.stderr)
     return samples
 
 
@@ -352,4 +353,5 @@ async def push(
             seen = (i+1)*batch_size
             progress = seen / expected_samples
             print(f"\x1b[J~{progress*100:>5.1f}% ({seen}/{expected_samples})",
-                  end="\r")
+                  end="\r",
+                  file=sys.stderr)
