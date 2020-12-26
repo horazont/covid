@@ -1,0 +1,104 @@
+# This file contains a random selection of german policy decisions and
+# some notable spreader events.
+# Much of the data has been collected from Wikipedia:
+# - https://de.wikipedia.org/wiki/COVID-19-Pandemie:_Chronik_der_Ausbreitung_in_Deutschland
+# - https://de.wikipedia.org/wiki/COVID-19-Pandemie_in_Deutschland
+
+# spreader categories:
+# <50
+# <100
+# <200
+# <500
+# <1000
+# <2000
+# <5000
+
+[[event]]
+date="2020-01-31"
+title="Meldepflicht"
+is_policy=true
+
+[[event]]
+date="2020-02-15"
+title="Karneval Heinsberg"
+state="Nordrhein-Wesfalen"
+district="LK Heinsberg"
+is_spreader=true
+spreader_class=5000
+
+[[event]]
+date="2020-03-08"
+title="Veranstaltungsstopp"
+text="Empfehlung, Veranstaltungen mit >1000 Teilnehmern abzusagen"
+is_policy=true
+
+[[event]]
+date="2020-03-09"
+title="Chorprobe"
+state="Berlin"
+is_spreader=true
+spreader_class=50
+
+[[event]]
+date="2020-03-13"
+title="Ausbruch Pflegeheim"
+state="Niedersachsen"
+district="SK Wolfsburg"
+is_spreader=true
+spreader_class=50
+
+[[event]]
+date="2020-03-17"
+title="Einreisestopp"
+is_policy=true
+
+[[event]]
+date="2020-03-23"
+title="Lockdown"
+text='Umfassende Kontaktbeschränkungen, Geschäftsschließungen; <a href="https://de.wikipedia.org/wiki/COVID-19-Pandemie_in_Deutschland#1._Lockdown_ab_23._M%C3%A4rz_2020">Wikipedia</a>'
+is_policy=true
+
+[[event]]
+date="2020-04-20"
+title="Lockerungen"
+text='Teilweise Öffnung Einzelhandel; <a href="https://de.wikipedia.org/wiki/COVID-19-Pandemie_in_Deutschland#Lockerungen_im_April_und_Mai">Wikipedia</a>'
+is_policy=true
+
+[[event]]
+date="2020-04-30"
+title="Lockerungen"
+text='Freigabe religiöser Versammlungen, Öffnung Spielplätze; <a href="https://de.wikipedia.org/wiki/COVID-19-Pandemie_in_Deutschland#Lockerungen_im_April_und_Mai">Wikipedia</a>'
+is_policy=true
+
+[[event]]
+date="2020-05-06"
+title="Lockerungen"
+text="Öffnung aller Geschäfte, Kontaktbeschränkungen und Maskenpflichten bleiben bestehen"
+is_policy=true
+
+[[event]]
+date="2020-06-18"
+title="Tönnies-Ausbruch"
+state="Nordrhein-Westfalen"
+district="LK Gütersloh"
+is_spreader=true
+spreader_class=1000
+
+[[event]]
+date="2020-11-03"
+title="Soft-Shutdown"
+text='Diverse Beschränkungen, siehe <a target="_blank" href="https://www.tagesschau.de/inland/corona-regeln-november-101.html">Tagesschaubericht</a>'
+is_policy=true
+
+[[event]]
+date="2020-12-14"
+title="Shutdown"
+text="Geschäftsschließungen, Ausgangssperre"
+state="Sachsen"
+is_policy=true
+
+[[event]]
+date="2020-12-16"
+title="Shutdown (Bundesweit)"
+text="Geschäftsschließungen, Ausgangssperre"
+is_policy=true
