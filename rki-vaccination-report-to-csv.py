@@ -32,10 +32,7 @@ VALID_STATES = [
 
 
 def find_data_worksheet(workbook):
-    try:
-        return workbook["Presse"]
-    except KeyError:
-        return workbook["27.12.20"]
+    return workbook.worksheets[1]
 
 
 def main():
@@ -110,10 +107,10 @@ def main():
                 state,
                 cvacc,
                 d1vacc,
-                cvacc_age,
-                cvacc_occupation,
-                cvacc_medical,
-                cvacc_care,
+                cvacc_age or "",
+                cvacc_occupation or "",
+                cvacc_medical or "",
+                cvacc_care or "",
             ])
 
 
