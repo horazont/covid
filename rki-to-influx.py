@@ -121,7 +121,7 @@ def generate_population_samples(
             ns_part=0,
         ))
 
-    for i in range(ndays+1):
+    for i in range(ndays):
         date = first_date + timedelta(days=i)
         timestamp = datetime(date.year, date.month, date.day)
         yield from (
