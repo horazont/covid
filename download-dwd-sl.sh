@@ -36,11 +36,19 @@ function cleanup() {
 
 trap cleanup EXIT
 
-datefilter="$(date +"%Y%m" -d '-1month')"
+year="$(date +%Y)"
+month="$(date +%m)"
+if [ "$month" -eq 1 ]; then
+  year=$((year - 1))
+  month=12
+else
+  month=$((month - 1))
+fi
+datefilter="$(printf '%04d%02d' $year $month)"
 download_index "$indexfile"
 mapfile -t -s2 station_ids < <(cut -d' ' -f1,3 < "$indexfile" | grep -F " $datefilter" | cut -d' ' -f1)
 mkdir -p "$outdir"
-printf '%d stations have up-to-date data\n' "${#station_ids[@]}"
+printf '%d stations have up-to-date (%s) data\n' "${#station_ids[@]}" "$datefilter"
 for id in "${station_ids[@]}"; do
     outfile="$outdir/${id}_solar.txt"
     if ! download_data "$id" "$outfile"; then
