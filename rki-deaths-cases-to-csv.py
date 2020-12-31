@@ -90,7 +90,7 @@ def main():
     with contextlib.ExitStack() as stack:
         if args.infile.endswith(".gz"):
             fin = stack.enter_context(gzip.open(args.infile, "rt"))
-        if args.infile.endswith(".zip"):
+        elif args.infile.endswith(".zip"):
             fzip = stack.enter_context(open(args.infile, "rb"))
             archive = stack.enter_context(zipfile.ZipFile(fzip, "r"))
             names = archive.namelist()
