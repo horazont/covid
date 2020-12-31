@@ -3,9 +3,11 @@ import contextlib
 import csv
 import functools
 import gzip
+import io
 import pathlib
 import typing
 import sys
+import zipfile
 
 from datetime import datetime, date, timedelta
 
@@ -16,7 +18,9 @@ import common
 
 @functools.lru_cache(maxsize=128)
 def parse_german_time(ts: str) -> datetime:
-    return datetime.strptime(ts, "%d.%m.%Y, %H:%M Uhr")
+    if ts.endswith("Uhr"):
+        return datetime.strptime(ts, "%d.%m.%Y, 00:00 Uhr")
+    return datetime.strptime(ts, "%Y/%m/%d")
 
 
 def convert_death_samples(f):
@@ -86,6 +90,23 @@ def main():
     with contextlib.ExitStack() as stack:
         if args.infile.endswith(".gz"):
             fin = stack.enter_context(gzip.open(args.infile, "rt"))
+        if args.infile.endswith(".zip"):
+            fzip = stack.enter_context(open(args.infile, "rb"))
+            archive = stack.enter_context(zipfile.ZipFile(fzip, "r"))
+            names = archive.namelist()
+            if len(names) > 1:
+                print("{}: {}: more than one archive member".format(
+                    sys.argv[0],
+                    args.infile,
+                ), file=sys.stderr)
+                return 2
+            if not names:
+                print("{}: {}: empty archive".format(
+                    sys.argv[0], args.infile,
+                ))
+
+            finb = stack.enter_context(archive.open(names[0], "r"))
+            fin = io.TextIOWrapper(finb)
         else:
             fin = stack.enter_context(open(args.infile, "r"))
 
@@ -108,4 +129,4 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main() or 0)
