@@ -5,6 +5,7 @@ import functools
 import enum
 import itertools
 import operator
+import os
 import re
 import typing
 
@@ -213,6 +214,13 @@ async def write(
     params["precision"] = precision.value
     if retention_policy is not None:
         params["rp"] = retention_policy
+
+    try:
+        params["u"] = os.environ["INFLUXDB_USER"]
+        params["p"] = os.environ["INFLUXDB_PASSWORD"]
+    except KeyError:
+        params.pop("u", None)
+        params.pop("p", None)
 
     async with session.post(
             write_url,
