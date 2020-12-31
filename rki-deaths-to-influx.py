@@ -126,6 +126,9 @@ def main():
     sl = tuple([slice(None)] * (len(out.shape) - 1)) + (slice(1, None),)
     out = out[sl]
 
+    print("  clipping", file=sys.stderr)
+    out = out.clip(0)
+
     print("  sum", file=sys.stderr)
     out_geo = np.sum(np.sum(out, axis=3), axis=3)
     out_demo = np.sum(out, axis=2)
