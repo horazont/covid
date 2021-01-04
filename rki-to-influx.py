@@ -142,6 +142,12 @@ def main():
         "districts",
         type=argparse.FileType("rb"),
     )
+    parser.add_argument(
+        "-n", "--dry-run",
+        help="Do not send metrics to InfluxDB",
+        action="store_true",
+        default=False,
+    )
 
     args = parser.parse_args()
 
@@ -206,6 +212,7 @@ def main():
             out.data.shape[0],
         ),
         expected_samples=expected_samples,
+        dry_run=args.dry_run,
     ))
 
     import os

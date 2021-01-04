@@ -397,20 +397,24 @@ def generate_counter_samples(
 async def push(
         *influx_samples: typing.Iterable[influxdb.InfluxDBSample],
         expected_samples: int,
+        dry_run: bool = False,
         ):
     batch_size = 10000
     async with aiohttp.ClientSession() as session:
         for i, batch in enumerate(influxdb.batcher(
                 itertools.chain(*influx_samples),
                 batch_size)):
-            await influxdb.write(
-                api_url="http://localhost:8086",
-                session=session,
-                database="covid",
-                retention_policy=None,
-                precision=influxdb.Precision.SECONDS,
-                samples=influxdb._async_batcher(batch, 1000),
-            )
+            if dry_run:
+                list(batch)
+            else:
+                await influxdb.write(
+                    api_url="http://localhost:8086",
+                    session=session,
+                    database="covid",
+                    retention_policy=None,
+                    precision=influxdb.Precision.SECONDS,
+                    samples=influxdb._async_batcher(batch, 1000),
+                )
             seen = (i+1)*batch_size
             progress = seen / expected_samples
             print(f"\x1b[J~{progress*100:>5.1f}% ({seen}/{expected_samples})",
