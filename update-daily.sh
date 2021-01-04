@@ -5,4 +5,4 @@ set -euo pipefail
 ./download-rki.sh
 ./dwd-to-influx.py
 ./jhu-to-influx.py jhu
-./rki-to-influx.py rki
+./rki-to-influx.py rki/cases.csv rki/districts.csv

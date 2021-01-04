@@ -1,10 +1,15 @@
 import csv
+import contextlib
 import dataclasses
 import functools
+import gzip
 import itertools
+import io
+import pathlib
 import re
 import typing
 import sys
+import zipfile
 
 from datetime import datetime, timedelta
 
@@ -228,6 +233,62 @@ def daterange(d1, d2):
     days = (dt2 - dt1).days
     for i in range(days+1):
         yield (dt1 + timedelta(days=i)).date()
+
+
+@contextlib.contextmanager
+def _gzip_open(fileref, *, encoding):
+    with gzip.open(fileref, "rt", encoding=encoding) as f:
+        yield f
+
+
+@contextlib.contextmanager
+def _zip_open(fileref, *, encoding):
+    with contextlib.ExitStack() as stack:
+        if isinstance(fileref, pathlib.Path):
+            fin_zip = stack.enter_context(fileref.open("rb"))
+        else:
+            fin_zip = stack.enter_context(fileref)
+        archive = stack.enter_context(zipfile.ZipFile(fin_zip, "r"))
+        names = archive.namelist()
+        if len(names) > 1:
+            raise ValueError("more than one archive member found in zip file")
+        if not names:
+            raise ValueError("empty zip archive")
+
+        finb = stack.enter_context(archive.open(names[0], "r"))
+        fin = io.TextIOWrapper(finb, encoding=encoding)
+        yield fin
+
+
+@contextlib.contextmanager
+def magic_open(fileref, *, encoding="utf-8"):
+    if isinstance(fileref, (str, bytes)):
+        fileref = pathlib.Path(fileref)
+
+    if isinstance(fileref, pathlib.Path):
+        name = fileref.name
+    elif hasattr(fileref, "name"):
+        name = fileref.name
+    else:
+        name = None
+
+    if name is None and isinstance(fileref, pathlib.Path):
+        with fileref.open("r", encoding=encoding) as f:
+            yield f
+        return
+
+    if name.endswith(".gz"):
+        with _gzip_open(fileref, encoding=encoding) as f:
+            yield f
+    elif name.endswith(".zip"):
+        with _zip_open(fileref, encoding=encoding) as f:
+            yield f
+    elif isinstance(fileref, pathlib.Path):
+        with fileref.open("r", encoding=encoding) as f:
+            yield f
+    else:
+        with fileref:
+            yield io.TextIOWrapper(fileref, encoding=encoding)
 
 
 AXIS_TIME = 0

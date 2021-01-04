@@ -83,32 +83,13 @@ def main():
     )
     parser.add_argument(
         "infile",
+        type=argparse.FileType("rb"),
     )
 
     args = parser.parse_args()
 
     with contextlib.ExitStack() as stack:
-        if args.infile.endswith(".gz"):
-            fin = stack.enter_context(gzip.open(args.infile, "rt"))
-        elif args.infile.endswith(".zip"):
-            fzip = stack.enter_context(open(args.infile, "rb"))
-            archive = stack.enter_context(zipfile.ZipFile(fzip, "r"))
-            names = archive.namelist()
-            if len(names) > 1:
-                print("{}: {}: more than one archive member".format(
-                    sys.argv[0],
-                    args.infile,
-                ), file=sys.stderr)
-                return 2
-            if not names:
-                print("{}: {}: empty archive".format(
-                    sys.argv[0], args.infile,
-                ))
-
-            finb = stack.enter_context(archive.open(names[0], "r"))
-            fin = io.TextIOWrapper(finb)
-        else:
-            fin = stack.enter_context(open(args.infile, "r"))
+        fin = stack.enter_context(common.magic_open(args.infile))
 
         write_header = args.force_write_header
         if args.outfile is not None:

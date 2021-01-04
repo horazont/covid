@@ -131,10 +131,22 @@ def generate_population_samples(
 
 
 def main():
-    import sys
+    import argparse
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "cases",
+        type=argparse.FileType("rb"),
+    )
+    parser.add_argument(
+        "districts",
+        type=argparse.FileType("rb"),
+    )
+
+    args = parser.parse_args()
 
     print("loading ...")
-    with (pathlib.Path(sys.argv[1]) / "cases.csv").open("r") as f:
+    with common.magic_open(args.cases) as f:
         samples_raw = common.datebinned_items(f)
     print("\x1b[J", end="")
 
@@ -143,7 +155,7 @@ def main():
     del samples_raw
 
     print("preparing districts ...")
-    with (pathlib.Path(sys.argv[1]) / "districts.csv").open("r") as f:
+    with common.magic_open(args.districts) as f:
         district_data = load_rki_districts(f)
 
     print("crunching the numbers ...")

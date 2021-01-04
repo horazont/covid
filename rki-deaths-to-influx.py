@@ -105,13 +105,13 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "infile",
-        type=argparse.FileType("r"),
+        type=argparse.FileType("rb"),
     )
 
     args = parser.parse_args()
 
     print("loading ...", file=sys.stderr)
-    with args.infile as f:
+    with common.magic_open(args.infile) as f:
         death_samples, min_day, max_day = read_death_samples(f)
 
     print("\x1b[Jpreparing ...", file=sys.stderr)

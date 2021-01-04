@@ -39,8 +39,18 @@ def load_samples(f):
 
 
 def main():
+    import argparse
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "infile",
+        type=argparse.FileType("rb"),
+    )
+
+    args = parser.parse_args()
+
     print("streaming ...")
-    with open("rki/vaccination.csv") as fin:
+    with common.magic_open(args.infile) as fin:
         asyncio.run(common.push(
             load_samples(fin),
             expected_samples=1,
