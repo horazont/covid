@@ -67,7 +67,7 @@ def load_counters(
     max_day = max(samples.keys())
 
     def keyfunc(s):
-        return (s.country,)
+        return ((s.country,),)
 
     keys = common.build_axis_keys(
         (s for date_samples in samples.values() for s in date_samples),
@@ -172,7 +172,7 @@ def main():
 
     expected_samples = \
         len(population) * out.shape[0] + \
-        functools.reduce(operator.mul, out.shape)
+        functools.reduce(operator.mul, out.shape[:-1])
 
     print("sending ...")
     asyncio.run(common.push(
@@ -183,7 +183,7 @@ def main():
                 keys=counters.keys,
             ),
             MEASUREMENT_GEOGRAPHICS,
-            ["country"],
+            [("country",)],
             ["ccases", "cdeaths", "crecovered",
              "d1cases", "d1deaths", "d1recovered",
              "d7cases", "d7deaths", "d7recovered",

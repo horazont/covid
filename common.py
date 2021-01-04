@@ -373,7 +373,8 @@ def generate_counter_samples(
         for j, keyset in enumerate(keysets):
             tags = tuple(
                 (k, v)
-                for k, v in zip(key_labels, keyset)
+                for ks, vs in zip(key_labels, keyset)
+                for k, v in zip(ks, vs)
             )
             row = tuple(reshaped[i, j])
             if not any(row):
@@ -392,6 +393,61 @@ def generate_counter_samples(
                 timestamp=timestamp,
                 ns_part=0,
             )
+
+
+def drop_subkey(counters: Counters, *, key, nvalues, keep=1):
+    import sys
+
+    def keyfunc(k):
+        return tuple((v,) for v in k)
+
+    keys = build_axis_keys(
+        (k for k in counters.keys[key]),
+        nvalues,
+        keyfunc,
+    )
+    key_indices = [
+        {
+            k: i
+            for i, k in enumerate(ks)
+        }
+        for ks in keys
+    ]
+    axis = key + 1
+    old = counters.data
+    out_shape = (
+        old.shape[:axis] +
+        tuple(len(k) for k in keys[:keep]) +
+        old.shape[axis+1:]
+    )
+    out = np.zeros(out_shape)
+    out_keys = (
+        counters.keys[:key] +
+        keys[:keep] +
+        counters.keys[key+1:]
+    )
+    out_key_indices = (
+        counters.key_indices[:key] +
+        key_indices[:keep] +
+        counters.key_indices[key+1:]
+    )
+    for old_ix in np.ndindex(*old.shape[:axis+1]):
+        old_key = counters.keys[key][old_ix[axis]]
+        new_value = old_key[:keep]
+        new_ix_part = key_indices[key][new_value]
+        new_ix = (
+            old_ix[:axis] +
+            (new_ix_part, ...)
+        )
+        out[new_ix] += old[old_ix + (...,)]
+
+    return Counters(
+        keys=out_keys,
+        key_indices=out_key_indices,
+        first_date=counters.first_date,
+        count_axis=len(out_keys) + 1,
+        data=out,
+    )
 
 
 async def push(

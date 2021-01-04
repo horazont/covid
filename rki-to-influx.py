@@ -42,12 +42,12 @@ def load_counters(
     max_day = max(samples.keys())
 
     def keyfunc(s):
-        return (s.location.state_name, s.location.district_name,
-                s.age_group, s.sex)
+        return ((s.location.state_name, s.location.district_name),
+                (s.age_group,), (s.sex,))
 
     keys = common.build_axis_keys(
         (s for date_samples in samples.values() for s in date_samples),
-        4, keyfunc,
+        3, keyfunc,
     )
     key_indices = [
         {
@@ -169,24 +169,25 @@ def main():
     out = common.derive_data(counters.data)
 
     print("  sum")
-    out_geo = np.sum(np.sum(out, axis=3), axis=3)
-    out_demo = np.sum(out, axis=2)
+    out_geo = np.sum(np.sum(out, axis=2), axis=2)
+    out_demo_ctrs = common.drop_subkey(
+        dataclasses.replace(counters, data=out),
+        key=0,
+        nvalues=2,
+    )
+    out_demo = out_demo_ctrs.data
 
     expected_samples = \
         len(district_data) * out.shape[0] + \
-        functools.reduce(operator.mul, out_geo.shape) + \
-        functools.reduce(operator.mul, out_demo.shape)
+        functools.reduce(operator.mul, out_geo.shape[:-1]) + \
+        functools.reduce(operator.mul, out_demo.shape[:-1])
 
     print("sending ...")
     asyncio.run(common.push(
         common.generate_counter_samples(
-            dataclasses.replace(
-                counters,
-                data=out_demo,
-                keys=(counters.keys[0], counters.keys[2], counters.keys[3]),
-            ),
+            out_demo_ctrs,
             MEASUREMENT_DEMOGRAPHICS,
-            ["state", "age_group", "sex"],
+            [("state",), ("age_group",), ("sex",)],
             ["ccases", "cpubcases", "cdeaths", "crecovered",
              "d1cases", "d1pubcases", "d1deaths", "d1recovered",
              "d7cases", "d7pubcases", "d7deaths", "d7recovered",
@@ -199,7 +200,7 @@ def main():
                 keys=counters.keys[:-2],
             ),
             MEASUREMENT_GEOGRAPHICS,
-            ["state", "district"],
+            [("state", "district")],
             ["ccases", "cpubcases", "cdeaths", "crecovered",
              "d1cases", "d1pubcases", "d1deaths", "d1recovered",
              "d7cases", "d7pubcases", "d7deaths", "d7recovered",

@@ -61,12 +61,12 @@ def load_counters(
         max_day: datetime,
         ) -> common.Counters:
     def keyfunc(s):
-        return (s.location.state_name, s.location.district_name,
-                s.age_group, s.sex)
+        return ((s.location.state_name, s.location.district_name),
+                (s.age_group,), (s.sex,))
 
     keys = common.build_axis_keys(
         (s for s in samples),
-        4, keyfunc,
+        3, keyfunc,
     )
     key_indices = [
         {
@@ -130,24 +130,23 @@ def main():
     out = out.clip(0)
 
     print("  sum", file=sys.stderr)
-    out_geo = np.sum(np.sum(out, axis=3), axis=3)
-    out_demo = np.sum(out, axis=2)
+    out_geo = np.sum(np.sum(out, axis=2), axis=2)
+    out_demo_ctrs = common.drop_subkey(
+        dataclasses.replace(counters, data=out),
+        key=0,
+        nvalues=2,
+    )
 
     expected_samples = \
-        functools.reduce(operator.mul, out_geo.shape) + \
-        functools.reduce(operator.mul, out_demo.shape)
+        functools.reduce(operator.mul, out_geo.shape[:-1]) + \
+        functools.reduce(operator.mul, out_demo_ctrs.data.shape[:-1])
 
     print("sending ...", file=sys.stderr)
     asyncio.run(common.push(
         common.generate_counter_samples(
-            dataclasses.replace(
-                counters,
-                data=out_demo,
-                keys=(counters.keys[0], counters.keys[2],
-                      counters.keys[3]),
-            ),
+            out_demo_ctrs,
             MEASUREMENT_DEMOGRAPHICS,
-            ["state", "age_group", "sex"],
+            [("state",), ("age_group",), ("sex",)],
             ["d1pubdeaths", "d7pubdeaths", "d7pubdeaths_s7"],
         ),
         common.generate_counter_samples(
@@ -157,7 +156,7 @@ def main():
                 keys=counters.keys[:-2],
             ),
             MEASUREMENT_GEOGRAPHICS,
-            ["state", "district"],
+            [("state", "district")],
             ["d1pubdeaths", "d7pubdeaths", "d7pubdeaths_s7"],
         ),
         expected_samples=expected_samples,
