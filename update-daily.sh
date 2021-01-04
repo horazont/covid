@@ -1,4 +1,5 @@
 #!/bin/bash
+set -euo pipefail
 ./download-dwd-kl.sh
 ./download-jhu.sh
 ./download-rki.sh
