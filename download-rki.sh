@@ -29,4 +29,4 @@ if [ ! -f "$outfile_gz" ]; then
 else
     printf 'note: skipping compression of cases data since it is already present for today\n'
 fi
-ln -sf "$(basename "$outfile")" "$currentfile"
+ln -sf "$(basename "$outfile_gz")" "$currentfile"
