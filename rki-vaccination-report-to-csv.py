@@ -35,6 +35,49 @@ def find_data_worksheet(workbook):
     return workbook.worksheets[1]
 
 
+def load_first(worksheet):
+    row_iter = iter(worksheet.iter_rows(
+        min_row=1, min_col=1, max_row=17, max_col=7,
+        values_only=True
+    ))
+    header = next(row_iter)
+
+    assert header[0].lower().strip().strip("*") == "bundesland"
+    assert header[1].lower().strip().strip("*") == "impfungen kumulativ"
+    assert header[3].lower().strip().strip("*") == "indikation nach alter"
+    assert header[4].lower().strip().strip("*") == "berufliche indikation"
+    assert header[5].lower().strip().strip("*") == "medizinische indikation"
+    assert header[6].lower().strip().strip("*") == "pflegeheim-bewohnerin"
+
+    yield from row_iter
+
+
+def load_20210104(worksheet):
+    row_iter = iter(worksheet.iter_rows(
+        min_row=1, min_col=1, max_row=17, max_col=8,
+        values_only=True
+    ))
+    header = next(row_iter)
+
+    assert header[0].lower().strip().strip("*") == "bundesland"
+    assert header[1].lower().strip().strip("*") == "impfungen kumulativ"
+    assert header[4].lower().strip().strip("*") == "indikation nach alter"
+    assert header[5].lower().strip().strip("*") == "berufliche indikation"
+    assert header[6].lower().strip().strip("*") == "medizinische indikation"
+    assert header[7].lower().strip().strip("*") == "pflegeheim-bewohnerin"
+
+    for (state, cvacc, d1vacc, _, *remainder) in row_iter:
+        yield (state, cvacc, d1vacc,) + tuple(remainder)
+
+
+def load_rows(worksheet):
+    d1_value = worksheet["D1"].value
+    if d1_value.lower() == "impfungen pro 1.000 einwohner":
+        return load_20210104(worksheet)
+    else:
+        return load_first(worksheet)
+
+
 def main():
     import argparse
 
@@ -59,18 +102,7 @@ def main():
         workbook = openpyxl.load_workbook(f)
 
     sheet = find_data_worksheet(workbook)
-    row_iter = iter(sheet.iter_rows(
-        min_row=1, min_col=1, max_row=17, max_col=7,
-        values_only=True
-    ))
-    header = next(row_iter)
-
-    assert header[0].lower().strip().strip("*") == "bundesland"
-    assert header[1].lower().strip().strip("*") == "impfungen kumulativ"
-    assert header[3].lower().strip().strip("*") == "indikation nach alter"
-    assert header[4].lower().strip().strip("*") == "berufliche indikation"
-    assert header[5].lower().strip().strip("*") == "medizinische indikation"
-    assert header[6].lower().strip().strip("*") == "pflegeheim-bewohnerin"
+    row_iter = load_rows(sheet)
 
     is_new = args.force_write_header
     if args.output_file is None:
