@@ -106,5 +106,5 @@ is_policy=true
 [[event]]
 date="2021-01-05"
 title="Weitere Kontakteinschränkungen in Hotspots"
-text='Privatkontakte auf max. eine weitere Person sowie Bewegungseinschränkungen bei Inzidenz > 200; siehe <a target="_blank" href="https://www.tagesschau.de/inland/gesellschaft/corona-treffen-ergebnisse-101.html">Tagesschaubericht</a>'
+text='Privatkontakte auf max. eine weitere Person sowie Bewegungseinschränkungen bei Inzidenz &gt; 200; siehe <a target="_blank" href="https://www.tagesschau.de/inland/gesellschaft/corona-treffen-ergebnisse-101.html">Tagesschaubericht</a>'
 is_policy=true
