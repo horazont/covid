@@ -70,9 +70,30 @@ def load_20210104(worksheet):
         yield (state, cvacc, d1vacc,) + tuple(remainder)
 
 
+def load_20210107(worksheet):
+    row_iter = iter(worksheet.iter_rows(
+        min_row=1, min_col=1, max_row=17, max_col=9,
+        values_only=True
+    ))
+    header = next(row_iter)
+
+    assert header[1].lower().strip().strip("*") == "bundesland"
+    assert header[2].lower().strip().strip("*") == "impfungen kumulativ"
+    assert header[5].lower().strip().strip("*") == "indikation nach alter"
+    assert header[6].lower().strip().strip("*") == "berufliche indikation"
+    assert header[7].lower().strip().strip("*") == "medizinische indikation"
+    assert header[8].lower().strip().strip("*") == "pflegeheim-bewohnerin"
+
+    for (_, state, cvacc, d1vacc, _, *remainder) in row_iter:
+        yield (state, cvacc, d1vacc,) + tuple(remainder)
+
+
 def load_rows(worksheet):
+    a1_value = worksheet["A1"].value
     d1_value = worksheet["D1"].value
-    if d1_value.lower() == "impfungen pro 1.000 einwohner":
+    if a1_value.lower() == "rs":
+        return load_20210107(worksheet)
+    elif d1_value.lower() == "impfungen pro 1.000 einwohner":
         return load_20210104(worksheet)
     else:
         return load_first(worksheet)
