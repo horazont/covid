@@ -53,7 +53,6 @@ def main():
     with common.magic_open(args.infile) as fin:
         asyncio.run(common.push(
             load_samples(fin),
-            expected_samples=1,
         ))
 
 

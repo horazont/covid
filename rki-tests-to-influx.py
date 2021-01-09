@@ -64,7 +64,6 @@ def main():
     with (pathlib.Path(sys.argv[1]) / "tests.csv").open("r") as f:
         asyncio.run(common.push(
             import_samples(f),
-            expected_samples=1,
         ))
     print("\x1b[J", end="")
 

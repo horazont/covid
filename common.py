@@ -452,7 +452,7 @@ def drop_subkey(counters: Counters, *, key, nvalues, keep=1):
 
 async def push(
         *influx_samples: typing.Iterable[influxdb.InfluxDBSample],
-        expected_samples: int,
+        expected_samples: typing.Optional[int] = None,
         dry_run: bool = False,
         ):
     batch_size = 10000
@@ -472,7 +472,11 @@ async def push(
                     samples=influxdb._async_batcher(batch, 1000),
                 )
             seen = (i+1)*batch_size
-            progress = seen / expected_samples
-            print(f"\x1b[J~{progress*100:>5.1f}% ({seen}/{expected_samples})",
+            if expected_samples is not None:
+                progress_p = seen / expected_samples * 100
+                progress = f"{progress_p:>5.1f}% ({seen}/{expected_samples})"
+            else:
+                progress = str(seen)
+            print(f"\x1b[J~{progress}",
                   end="\r",
                   file=sys.stderr)
