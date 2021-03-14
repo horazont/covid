@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import asyncio
 import csv
+import os
 import pathlib
 
 from datetime import datetime, date
@@ -103,13 +104,14 @@ def to_influx(sourcedir, stationmap):
 
 async def push(samples):
     batch_size = 10000
+    api_url = os.environ.get("INFLUXDB_URL", "http://localhost:8086")
     async with aiohttp.ClientSession() as session:
         for i, batch in enumerate(influxdb.batcher(samples, batch_size)):
             if 0:
                 list(batch)
             else:
                 await influxdb.write(
-                    api_url="http://localhost:8086",
+                    api_url=api_url,
                     session=session,
                     database="covid",
                     retention_policy=None,

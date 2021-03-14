@@ -455,6 +455,7 @@ async def push(
         expected_samples: typing.Optional[int] = None,
         dry_run: bool = False,
         ):
+    api_url = os.environ.get("INFLUXDB_URL", "http://localhost:8086")
     batch_size = 10000
     async with aiohttp.ClientSession() as session:
         for i, batch in enumerate(influxdb.batcher(
@@ -464,7 +465,7 @@ async def push(
                 list(batch)
             else:
                 await influxdb.write(
-                    api_url="http://localhost:8086",
+                    api_url=api_url,
                     session=session,
                     database="covid",
                     retention_policy=None,
