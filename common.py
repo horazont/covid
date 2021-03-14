@@ -5,6 +5,7 @@ import functools
 import gzip
 import itertools
 import io
+import os
 import pathlib
 import re
 import typing
