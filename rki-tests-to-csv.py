@@ -12,7 +12,7 @@ def find_data_worksheet(workbook):
 
 def load_rows(sheet):
     row_iter = iter(sheet.iter_rows(
-        min_row=3, min_col=2, max_col=6,
+        min_row=1, min_col=1, max_col=5,
         values_only=True,
     ))
     header = next(row_iter)
@@ -20,9 +20,9 @@ def load_rows(sheet):
     assert header[0].lower().strip().strip("*") == "kalenderwoche"
     assert header[1].lower().strip().strip("*") == "anzahl testungen"
     assert header[2].lower().strip().strip("*") == "positiv getestet"
-    assert header[3].lower().strip().strip("*") == "positiven-quote (%)"
+    assert header[3].lower().strip().strip("*") == "positivenanteil (%)"
     assert header[4].lower().strip().strip("*") == \
-        "anzahl übermittelnde labore"
+        "anzahl übermittelnder labore"
 
     skipped = next(row_iter)
     assert skipped[0].lower().strip().startswith("bis einschließlich")
