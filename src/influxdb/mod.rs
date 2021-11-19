@@ -1,5 +1,4 @@
 use std::fmt;
-use std::sync::Arc;
 
 use log::trace;
 
@@ -119,10 +118,7 @@ impl Client {
 			},
 			Err(e) => match e.status().unwrap() {
 				reqwest::StatusCode::FORBIDDEN | reqwest::StatusCode::UNAUTHORIZED => Err(Error::PermissionError),
-				reqwest::StatusCode::BAD_REQUEST | reqwest::StatusCode::PAYLOAD_TOO_LARGE => {
-					panic!("{:?}", resp.bytes().unwrap());
-					Err(Error::DataError)
-				},
+				reqwest::StatusCode::BAD_REQUEST | reqwest::StatusCode::PAYLOAD_TOO_LARGE => Err(Error::DataError),
 				reqwest::StatusCode::NOT_FOUND => Err(Error::DatabaseNotFound),
 				_ => Err(Error::Request(e)),
 			},

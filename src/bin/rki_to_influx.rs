@@ -1,17 +1,14 @@
 use std::collections::HashMap;
 use std::hash::Hash;
-use std::io;
-use std::io::Write;
 use std::sync::Arc;
-use std::time;
 
 use smartstring::alias::{String as SmartString};
 
-use chrono::{NaiveDate, DateTime, Date, Utc, TimeZone, Datelike};
+use chrono::{NaiveDate, Utc, TimeZone, Datelike};
 
 use csv;
 
-use covid::{StateId, DistrictId, DistrictInfo, InfectionRecord, AgeGroup, Sex, MaybeAgeGroup, Counters};
+use covid::{StateId, DistrictId, DistrictInfo, InfectionRecord, Counters, FullCaseKey, ProgressMeter, ProgressSink};
 
 
 pub struct CounterGroup<T: Hash + Eq + Clone> {
@@ -63,8 +60,6 @@ impl<T: Hash + Eq + Clone> CounterGroup<T> {
 	}
 }
 
-
-type FullCaseKey = (StateId, DistrictId, MaybeAgeGroup, Sex);
 
 struct RawCaseData {
 	pub cases_by_ref: Counters<FullCaseKey>,
@@ -149,72 +144,6 @@ impl<T: Hash + Clone + Eq> CookedCaseData<T> {
 			cases_by_report: self.cases_by_report.rekeyed(&f),
 			deaths: self.deaths.rekeyed(&f),
 			recovered: self.recovered.rekeyed(&f),
-		}
-	}
-}
-
-pub struct ProgressMeter {
-	t0: time::Instant,
-	tprev: time::Instant,
-	iprev: usize,
-	n: Option<usize>,
-}
-
-trait ProgressSink {
-	fn update(&mut self, inow: usize);
-	fn finish(self, inow: Option<usize>);
-}
-
-impl ProgressMeter {
-	fn start(n: Option<usize>) -> Self {
-		let now = time::Instant::now();
-		match n {
-			Some(_) => print!("{:6.0}% [{:6.2}/s]\r", 0.0, 0),
-			None => print!("{:12} [{:6.2}/s]\r", 0, 0),
-		}
-		io::stdout().flush().unwrap();
-		Self{
-			t0: now,
-			tprev: now,
-			iprev: 0,
-			n,
-		}
-	}
-}
-
-impl ProgressSink for ProgressMeter {
-	fn update(&mut self, inow: usize) {
-		let now = time::Instant::now();
-		let dt = (now - self.tprev).as_secs_f64();
-		let rate = (inow - self.iprev) as f64 / dt;
-		match self.n {
-			Some(n) => {
-				let done = (inow as f64) / (n as f64);
-				print!("{:6.0}% [{:6.2}/s]\r", done * 100.0, rate);
-			},
-			None => {
-				print!("{:12} [{:6.2}/s]\r", inow, rate);
-			},
-		}
-		io::stdout().flush().unwrap();
-		self.iprev = inow;
-		self.tprev = now;
-	}
-
-	fn finish(self, inow: Option<usize>) {
-		let (inow, tnow) = match inow.or(self.n) {
-			Some(inow) => (inow, time::Instant::now()),
-			None => (self.iprev, self.tprev),
-		};
-		let dt = (tnow - self.t0).as_secs_f64();
-		let rate = inow as f64 / dt;
-		match self.n {
-			Some(n) => {
-				println!("{:6.0}% [{:6.2}/s]\r", 100.0, rate);
-			},
-			None => {
-				println!("{:12} [{:6.2}/s]\r", inow, rate);
-			},
 		}
 	}
 }
@@ -331,7 +260,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 	println!("processing input data ...");
 	let mut raw_counters = RawCaseData::new(start, end);
-	let mut fr = std::fs::File::open(cases)?;
+	let mut fr = covid::magic_open(cases)?;
 	let mut r = csv::Reader::from_reader(&mut fr);
 	let mut pm = ProgressMeter::start(None);
 	let mut n = 0;
