@@ -139,7 +139,7 @@ def load_jhu_population_data(f) -> typing.Mapping[str, int]:
             continue
         population_s = row["Population"]
         # using addition here because we strip out provinces etc.
-        result[row["Country_Region"]] += int(population_s)
+        result[row["Country_Region"]] += int(population_s or "0")
     return result
 
 
