@@ -1,17 +1,21 @@
-use std::collections::HashMap;
 use std::hash::Hash;
 
-use chrono::naive::NaiveDate;
-use chrono::Utc;
+use chrono::{NaiveDate, Utc, TimeZone, Datelike};
+
+use smartstring::alias::{String as SmartString};
 
 pub mod influxdb;
 mod ioutil;
 mod rki;
 mod progress;
+mod divi;
+mod timeseries;
 
 pub use ioutil::magic_open;
 pub use rki::*;
 pub use progress::{ProgressMeter, ProgressSink};
+pub use divi::*;
+pub use timeseries::*;
 
 
 pub fn naive_today() -> NaiveDate {
@@ -23,150 +27,103 @@ pub fn global_start_date() -> NaiveDate {
 }
 
 
-#[derive(Debug, Clone)]
-pub struct Counters<T: Hash + Eq> {
-	start: NaiveDate,
-	keys: HashMap<T, usize>,
-	time_series: Vec<Vec<u64>>,
-	len: usize,
+pub struct CounterGroup<T: Hash + Eq + Clone> {
+	cum: Counters<T>,
+	d1: Counters<T>,
+	d7: Counters<T>,
+	d7s7: Counters<T>,
 }
 
-impl<T: Hash + Eq> Counters<T> {
-	pub fn new(start: NaiveDate, last: NaiveDate) -> Self {
-		let len = (last - start).num_days();
-		assert!(len >= 0);
-		let len = len as usize;
+impl<T: Hash + Eq + Clone> CounterGroup<T> {
+	pub fn from_d1(d1: Counters<T>) -> Self {
+		let mut cum = d1.clone();
+		cum.cumsum();
+		let mut d7 = cum.clone();
+		d7.diff(7);
+		let mut d7s7 = d7.clone();
+		d7s7.shift_fwd(7);
 		Self{
-			start,
-			len,
-			keys: HashMap::new(),
-			time_series: Vec::new(),
+			cum,
+			d1,
+			d7,
+			d7s7,
 		}
 	}
 
-	#[inline(always)]
-	pub fn date_index(&self, other: NaiveDate) -> Option<usize> {
-		let days = (other - self.start).num_days();
-		if days < 0 || days as usize >= self.len {
-			return None
+	pub fn rekeyed<U: Hash + Clone + Eq, F: Fn(&T) -> U>(&self, f: F) -> CounterGroup<U> {
+		CounterGroup::<U>{
+			cum: self.cum.rekeyed(&f),
+			d1: self.d1.rekeyed(&f),
+			d7: self.d7.rekeyed(&f),
+			d7s7: self.d7s7.rekeyed(&f),
 		}
-		return Some(days as usize)
 	}
 
-	#[inline(always)]
-	pub fn index_date(&self, i: i64) -> Option<NaiveDate> {
-		if i < 0 || i as usize >= self.len {
-			return None
-		}
-		return Some(self.start + chrono::Duration::days(i))
+	pub fn cum(&self) -> &Counters<T> {
+		&self.cum
 	}
 
-	#[inline(always)]
-	pub fn start(&self) -> NaiveDate {
-		self.start
+	pub fn d1(&self) -> &Counters<T> {
+		&self.d1
 	}
 
-	#[inline(always)]
-	pub fn len(&self) -> usize {
-		self.len
+	pub fn d7(&self) -> &Counters<T> {
+		&self.d7
+	}
+
+	pub fn d7s7(&self) -> &Counters<T> {
+		&self.d7s7
 	}
 }
 
-impl<T: Hash + Clone + Eq> Counters<T> {
-	pub fn get_or_create(&mut self, k: T) -> &mut [u64] {
-		let index = self.get_index_or_create(k);
-		&mut self.time_series[index][..]
-	}
 
-	pub fn get_index_or_create(&mut self, k: T) -> usize {
-		match self.keys.get(&k) {
-			Some(v) => *v,
-			None => {
-				let v = self.time_series.len();
-				let mut vec = Vec::with_capacity(self.len);
-				vec.resize(self.len, 0);
-				self.time_series.push(vec);
-				self.keys.insert(k, v);
-				v
-			},
+pub fn stream<K: Hash + Eq + Clone>(
+		sink: &influxdb::Client,
+		measurement: &str,
+		tags: Vec<SmartString>,
+		fields: Vec<SmartString>,
+		keyset: &[(&K, Vec<SmartString>)],
+		vecs: &[&Counters<K>],
+) -> Result<(), influxdb::Error> {
+	#[cfg(debug_assertions)]
+	{
+		for (_, ts) in keyset.iter() {
+			assert!(ts.len() != tags.len());
 		}
 	}
 
-	pub fn get_index(&self, k: &T) -> Option<usize> {
-		Some(*self.keys.get(k)?)
-	}
+	let mut readout = influxdb::Readout{
+		ts: Utc::today().and_hms(0, 0, 0),
+		measurement: measurement.into(),
+		precision: influxdb::Precision::Seconds,
+		tags: tags,
+		fields: fields,
+		samples: Vec::new(),
+	};
 
-	pub fn get(&self, k: &T) -> Option<&[u64]> {
-		let index = self.get_index(k)?;
-		Some(&self.time_series[index][..])
-	}
-
-	pub fn get_value(&self, k: &T, i: usize) -> Option<u64> {
-		if i >= self.len {
-			return None
-		}
-		self.get(k).and_then(|v| { Some(v[i]) })
-	}
-
-	pub fn keys(&self) -> std::collections::hash_map::Keys<'_, T, usize> {
-		self.keys.keys()
-	}
-
-	pub fn rekeyed<U: Hash + Clone + Eq, F: Fn(&T) -> U>(&self, f: F) -> Counters<U> {
-		let mut result = Counters::<U>{
-			start: self.start,
-			len: self.len,
-			keys: HashMap::new(),
-			time_series: Vec::new(),
-		};
-		for (k_old, index_old) in self.keys.iter() {
-			let k_new = f(&k_old);
-			let ts_new = result.get_or_create(k_new);
-			let ts_old = &self.time_series[*index_old][..];
-			assert_eq!(ts_new.len(), ts_old.len());
-			for i in 0..ts_new.len() {
-				// This is safe because we asserted that both slices have the
-				// same length and the loop is only going up to that length
-				// minus one.
-				unsafe {
-					*ts_new.get_unchecked_mut(i) += *ts_old.get_unchecked(i);
-				}
+	let ref_vec = &vecs[0];
+	let n = ref_vec.len();
+	let mut pm = ProgressMeter::start(Some(n));
+	for i in 0..n {
+		let nds = ref_vec.index_date(i as i64).unwrap();
+		readout.ts = Utc.ymd(nds.year(), nds.month(), nds.day()).and_hms(0, 0, 0);
+		// we can assume that any death and recovered has a case before that, which means that we can safely use the keyset of cases_rep_d1.
+		for (k_index, (k, tagv)) in keyset.iter().enumerate() {
+			let fieldv: Vec<_> = vecs.iter().map(|v| { v.get_value(&k, i).unwrap_or(0) as f64}).collect();
+			if k_index >= readout.samples.len() {
+				readout.samples.push(influxdb::Sample{
+					tagv: tagv.clone(),
+					fieldv,
+				});
+			} else {
+				readout.samples[k_index].fieldv.copy_from_slice(&fieldv[..]);
 			}
 		}
-		result
-	}
-
-	pub fn cumsum(&mut self) {
-		for vec in self.time_series.iter_mut() {
-			let mut accum: u64 = 0;
-			for v in vec.iter_mut() {
-				accum += *v;
-				*v = accum;
-			}
+		sink.post("covid", None, None, readout.precision, &[&readout])?;
+		if i % 30 == 29 {
+			pm.update(i+1);
 		}
 	}
-
-	pub fn diff(&mut self, offset: usize) {
-		for vec in self.time_series.iter_mut() {
-			for i in offset..vec.len() {
-				let r = vec[i];
-				let i_l = i - offset;
-				vec[i_l] = r.checked_sub(vec[i_l]).expect("diff needs cumsum as input");
-			}
-			vec.rotate_right(offset);
-			vec[..offset].fill(0);
-		}
-	}
-
-	pub fn shift_fwd(&mut self, offset: usize) {
-		if offset >= self.len {
-			for vec in self.time_series.iter_mut() {
-				vec.fill(0);
-			}
-		}
-		for vec in self.time_series.iter_mut() {
-			vec.rotate_right(offset);
-			vec[..offset].fill(0);
-		}
-	}
+	pm.finish(Some(n));
+	Ok(())
 }

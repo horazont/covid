@@ -14,6 +14,7 @@ use chrono::naive::NaiveDate;
 pub type DistrictId = u32;
 pub type StateId = u32;
 pub type FullCaseKey = (StateId, DistrictId, MaybeAgeGroup, Sex);
+pub type GeoCaseKey = (StateId, DistrictId);
 
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Deserialize)]
@@ -299,10 +300,6 @@ pub fn load_rki_districts<R: io::Read>(r: &mut R) -> Result<(HashMap<DistrictId,
 	Ok((states, districts))
 }
 
-fn zero_u64() -> u64 {
-	0
-}
-
 #[derive(Debug, Clone, Deserialize)]
 pub struct DiffRecord {
 	#[serde(rename = "Datum")]
@@ -313,21 +310,23 @@ pub struct DiffRecord {
 	pub age_group: MaybeAgeGroup,
 	#[serde(rename = "Geschlecht")]
 	pub sex: Sex,
-	#[serde(rename = "AnzahlFall", default = "zero_u64")]
+	#[serde(rename = "VerzugGesamt")]
+	pub delay_total: u64,
+	#[serde(rename = "AnzahlFall")]
 	pub cases: u64,
 	#[serde(rename = "AnzahlTodesfall")]
 	pub deaths: u64,
-	#[serde(rename = "AnzahlGenesen", default = "zero_u64")]
+	#[serde(rename = "AnzahlGenesen")]
 	pub recovered: u64,
 }
 
 impl DiffRecord {
 	pub fn write_header<W: io::Write>(w: &mut W) -> io::Result<()> {
-		w.write("Datum,LandkreisId,Altersgruppe,Geschlecht,AnzahlFall,AnzahlTodesfall,AnzahlGenesen\n".as_bytes())?;
+		w.write("Datum,LandkreisId,Altersgruppe,Geschlecht,VerzugGesamt,AnzahlFall,AnzahlTodesfall,AnzahlGenesen\n".as_bytes())?;
 		Ok(())
 	}
 
 	pub fn write<W: io::Write>(&self, w: &mut W) -> io::Result<()> {
-		write!(w, "{},{},{},{},{},{},{}\n", self.date, self.district_id, self.age_group, self.sex, self.cases, self.deaths, self.recovered)
+		write!(w, "{},{},{},{},{},{},{},{}\n", self.date, self.district_id, self.age_group, self.sex, self.delay_total, self.cases, self.deaths, self.recovered)
 	}
 }
