@@ -1,5 +1,5 @@
 /cases*.csv
-/deaths.csv
 /districts.csv
 /cases*.csv.gz
-/deaths.marker
+/diff.marker
+/diff.csv
