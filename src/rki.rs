@@ -452,7 +452,7 @@ pub fn inject_berlin(
 	districts.insert(11000, Arc::new(DistrictInfo{
 		id: 11000,
 		state: states.get(&11).unwrap().clone(),
-		name: "Berlin gesamt".into(),
+		name: "SK Berlin".into(),
 		population: total_pop,
 	}));
 }

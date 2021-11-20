@@ -75,6 +75,15 @@ impl RawCaseData {
 			self.recovered.get_or_create(k)[ref_index] += recovered_count as u64;
 		}
 	}
+
+	fn remapped<F: Fn(&FullCaseKey) -> Option<FullCaseKey>>(&self, f: F) -> RawCaseData {
+		RawCaseData{
+			cases_by_ref: self.cases_by_ref.rekeyed(&f),
+			cases_by_report: self.cases_by_report.rekeyed(&f),
+			deaths: self.deaths.rekeyed(&f),
+			recovered: self.recovered.rekeyed(&f),
+		}
+	}
 }
 
 
@@ -112,6 +121,15 @@ impl ParboiledCaseData {
 		}
 		if rec.recovered > 0 {
 			self.recovered_by_pub.get_or_create(k)[ref_index] += rec.recovered;
+		}
+	}
+
+	fn remapped<F: Fn(&FullCaseKey) -> Option<FullCaseKey>>(&self, f: F) -> ParboiledCaseData {
+		ParboiledCaseData{
+			cases_by_pub: self.cases_by_pub.rekeyed(&f),
+			case_delay_total: self.case_delay_total.rekeyed(&f),
+			deaths_by_pub: self.deaths_by_pub.rekeyed(&f),
+			recovered_by_pub: self.recovered_by_pub.rekeyed(&f),
 		}
 	}
 }
@@ -283,6 +301,14 @@ impl RawVaccinationData {
 		};
 		let index = ts.date_index(rec.date).expect("date out of range");
 		ts.get_or_create(k)[index] += rec.count;
+	}
+
+	pub fn remapped<F: Fn(&VaccinationKey) -> Option<VaccinationKey>>(&self, f: F) -> RawVaccinationData {
+		RawVaccinationData{
+			first_vacc: self.first_vacc.rekeyed(&f),
+			basic_vacc: self.basic_vacc.rekeyed(&f),
+			full_vacc: self.full_vacc.rekeyed(&f),
+		}
 	}
 }
 
@@ -612,6 +638,15 @@ fn load_hosp_data<'s, P: AsRef<Path>, S: ProgressSink + ?Sized>(
 }
 
 
+fn remap_berlin(id: DistrictId) -> DistrictId {
+	if id >= 11000 && id < 12000 {
+		11000
+	} else {
+		id
+	}
+}
+
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
 	let argv: Vec<String> = std::env::args().collect();
 	let casefile = &argv[1];
@@ -624,7 +659,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 		let mut r = std::fs::File::open(districts)?;
 		covid::load_rki_districts(&mut r)?
 	};
-	covid::inject_berlin(&states, &mut districts);
 	let start = global_start_date();
 	let end = naive_today();
 
@@ -634,22 +668,40 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 		let k = (district.state.id, district.id);
 		population.get_or_create(k).fill(district.population);
 	}
+	let population = population.rekeyed(|(state_id, district_id)| {
+		Some((*state_id, remap_berlin(*district_id)))
+	});
+
+	// We inject berlin only later. This allows us to rekey the population above to eliminate the separate berlin districts.
+	covid::inject_berlin(&states, &mut districts);
 
 	let mut cases = RawCaseData::new(start, end);
 	println!("loading case data ...");
 	load_case_data(&mut *covid::default_output(), casefile, &districts, &mut cases)?;
+	let cases = cases.remapped(|(state_id, district_id, mag, sex)| {
+		Some((*state_id, remap_berlin(*district_id), *mag, *sex))
+	});
 
 	let mut diff_cases = ParboiledCaseData::new(start, end);
 	println!("loading diff data ...");
 	load_diff_data(&mut *covid::default_output(), difffile, &districts, &mut diff_cases)?;
+	let diff_cases = diff_cases.remapped(|(state_id, district_id, mag, sex)| {
+		Some((*state_id, remap_berlin(*district_id), *mag, *sex))
+	});
 
 	let mut icu_load = ICULoadData::new(start, end);
 	println!("loading ICU data ...");
 	load_divi_load_data(&mut *covid::default_output(), divifile, &mut icu_load)?;
+	let icu_load = icu_load.rekeyed(|(state_id, district_id)| {
+		Some((*state_id, remap_berlin(*district_id)))
+	});
 
 	let mut vacc = RawVaccinationData::new(start, end);
 	println!("loading vaccination data ...");
 	load_vacc_data(&mut *covid::default_output(), vaccfile, &districts, &mut vacc)?;
+	let vacc = vacc.remapped(|(state_id, district_id, ag)| {
+		Some((*state_id, district_id.map(remap_berlin), *ag))
+	});
 
 	let mut hosp = RawHospitalizationData::new(start, end);
 	println!("loading hospitalization data ...");
@@ -693,8 +745,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 			&icu_load.curr_beds_free,
 			&vacc.first_vacc.cum,
 			&vacc.basic_vacc.cum,
-			&vacc.full_vacc.cum,
-			&population
+			&vacc.full_vacc.cum
 		);
 		let keys: Vec<_> = keys.drain().map(|k| {
 			let state_id = k.0;
