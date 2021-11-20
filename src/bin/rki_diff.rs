@@ -4,7 +4,7 @@ use std::fs::File;
 
 use chrono::NaiveDate;
 
-use covid::{DistrictId, MaybeAgeGroup, Sex, Counters, ReportFlag, InfectionRecord, global_start_date, naive_today, StepMeter, CountMeter, TtySink, ProgressSink, DiffRecord};
+use covid::{DistrictId, MaybeAgeGroup, Sex, Counters, ReportFlag, InfectionRecord, global_start_date, naive_today, StepMeter, CountMeter, ProgressSink, DiffRecord};
 
 
 type PartialCaseKey = (DistrictId, MaybeAgeGroup, Sex);
@@ -88,7 +88,7 @@ impl PartialDiffData {
 		saturating_add_u64_i32(&mut self.recovered_by_pub.get_or_create(k)[recovered_index], recovered_diff);
 	}
 
-	fn write_all<W: io::Write, S: ProgressSink>(&self, s: &mut S, w: &mut W) -> io::Result<()> {
+	fn write_all<W: io::Write, S: ProgressSink + ?Sized>(&self, s: &mut S, w: &mut W) -> io::Result<()> {
 		let start = self.cases_by_pub.start();
 		let len = self.cases_by_pub.len();
 		let mut pm = StepMeter::new(s, len);
@@ -125,7 +125,7 @@ impl PartialDiffData {
 	}
 }
 
-fn load_existing<R: io::Read, S: ProgressSink>(s: &mut S, r: &mut R, d: &mut PartialDiffData) -> io::Result<()> {
+fn load_existing<R: io::Read, S: ProgressSink + ?Sized>(s: &mut S, r: &mut R, d: &mut PartialDiffData) -> io::Result<()> {
 	let mut r = csv::Reader::from_reader(r);
 	let mut pm = CountMeter::new(s);
 	let mut n = 0;
@@ -146,7 +146,7 @@ fn load_existing<R: io::Read, S: ProgressSink>(s: &mut S, r: &mut R, d: &mut Par
 	Ok(())
 }
 
-fn try_load_existing<P: AsRef<Path>, S: ProgressSink>(s: &mut S, path: P, d: &mut PartialDiffData) -> io::Result<()> {
+fn try_load_existing<P: AsRef<Path>, S: ProgressSink + ?Sized>(s: &mut S, path: P, d: &mut PartialDiffData) -> io::Result<()> {
 	// not using magic open as a safeguard: the output will always be uncompressed and refusing compressed input protects against accidentally overwriting a source file
 	let mut r = match File::open(path) {
 		Ok(f) => f,
@@ -157,7 +157,7 @@ fn try_load_existing<P: AsRef<Path>, S: ProgressSink>(s: &mut S, path: P, d: &mu
 	load_existing(s, &mut r, d)
 }
 
-fn merge_new<P: AsRef<Path>, S: ProgressSink>(s: &mut S, path: P, date: NaiveDate, d: &mut PartialDiffData) -> io::Result<()> {
+fn merge_new<P: AsRef<Path>, S: ProgressSink + ?Sized>(s: &mut S, path: P, date: NaiveDate, d: &mut PartialDiffData) -> io::Result<()> {
 	let r = covid::magic_open(path)?;
 	let mut r = csv::Reader::from_reader(r);
 	let mut pm = CountMeter::new(s);
@@ -174,7 +174,7 @@ fn merge_new<P: AsRef<Path>, S: ProgressSink>(s: &mut S, path: P, date: NaiveDat
 	Ok(())
 }
 
-fn writeback<P: AsRef<Path>, S: ProgressSink>(s: &mut S, path: P, d: &PartialDiffData) -> io::Result<()> {
+fn writeback<P: AsRef<Path>, S: ProgressSink + ?Sized>(s: &mut S, path: P, d: &PartialDiffData) -> io::Result<()> {
 	let mut f = File::create(path)?;
 	DiffRecord::write_header(&mut f)?;
 	d.write_all(s, &mut f)?;
@@ -190,18 +190,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 	let mut counters = PartialDiffData::new(start, end);
 
 	println!("loading existing records ...");
-	try_load_existing(&mut covid::default_output(), datafile, &mut counters)?;
+	try_load_existing(&mut *covid::default_output(), datafile, &mut counters)?;
 
 	for pair in argv[2..].chunks(2) {
 		let newfile = &pair[0];
 		// subtract one because the publication refers to the day before
 		let date = pair[1].parse::<NaiveDate>()? - chrono::Duration::days(1);
 		println!("merging new records ({} -> {}) ...", newfile, date);
-		merge_new(&mut covid::default_output(), newfile, date, &mut counters)?;
+		merge_new(&mut *covid::default_output(), newfile, date, &mut counters)?;
 	}
 
 	println!("rewriting records ...");
-	writeback(&mut covid::default_output(), datafile, &counters)?;
+	writeback(&mut *covid::default_output(), datafile, &counters)?;
 
 	Ok(())
 }

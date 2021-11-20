@@ -113,6 +113,8 @@ impl<T: TimeSeriesKey, V: Copy + Zero> TimeSeries<T, V> {
 		self.keys.keys()
 	}
 
+	// occassionally useful for debugging
+	#[allow(dead_code)]
 	fn reverse_index(&self, i: usize) -> Option<&T> {
 		for (k, v) in self.keys.iter() {
 			if *v == i {

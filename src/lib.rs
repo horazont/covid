@@ -1,5 +1,3 @@
-use std::hash::Hash;
-
 use chrono::{NaiveDate, Utc, TimeZone, Datelike};
 
 use smartstring::alias::{String as SmartString};

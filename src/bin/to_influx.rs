@@ -1,5 +1,4 @@
 use std::collections::HashMap;
-use std::hash::Hash;
 use std::io;
 use std::path::Path;
 use std::sync::Arc;
@@ -17,7 +16,7 @@ use covid::{StateId, DistrictId, DistrictInfo, InfectionRecord, Counters, FullCa
 static GEO_MEASUREMENT_NAME: &'static str = "data_v2_geo";
 static GEO_LIGHT_MEASUREMENT_NAME: &'static str = "data_v2_geo_light";
 static DEMO_MEASUREMENT_NAME: &'static str = "data_v2_demo";
-static DEMO_LIGHT_MEASUREMENT_NAME: &'static str = "data_v2_demo_light";
+// static DEMO_LIGHT_MEASUREMENT_NAME: &'static str = "data_v2_demo_light";
 
 
 struct RawCaseData {
@@ -155,6 +154,8 @@ impl<T: TimeSeriesKey> CookedCaseData<T> {
 		}
 	}
 
+	// We may at some point do something about berlin, see the XXX below.
+	#[allow(dead_code)]
 	pub fn synthesize<U: TimeSeriesKey>(&mut self, kin: &[&T], kout: T) {
 		self.cases_by_pub.synthesize(kin, kout.clone());
 		self.case_delay_total.synthesize(kin, kout.clone());
@@ -311,6 +312,8 @@ impl<T: TimeSeriesKey> CookedVaccinationData<T> {
 		}
 	}
 
+	// We may at some point do something about berlin, see the XXX below.
+	#[allow(dead_code)]
 	pub fn synthesize<U: TimeSeriesKey>(&mut self, kin: &[&T], kout: T) {
 		self.first_vacc.synthesize(kin, kout.clone());
 		self.basic_vacc.synthesize(kin, kout.clone());
@@ -385,6 +388,8 @@ impl<T: TimeSeriesKey> CookedHospitalizationData<T> {
 		}
 	}
 
+	// We may at some point do something about berlin, see the XXX below.
+	#[allow(dead_code)]
 	pub fn synthesize<U: TimeSeriesKey>(&mut self, kin: &[&T], kout: T) {
 		self.cases.synthesize(kin, kout.clone());
 	}
@@ -594,7 +599,7 @@ fn load_hosp_data<'s, P: AsRef<Path>, S: ProgressSink + ?Sized>(
 		let rec: HospitalizationRecord = match row {
 			Ok(v) => v,
 			// for some reason, they have NA in some cells?!
-			Err(e) => continue,
+			Err(_) => continue,
 		};
 		data.submit(&rec);
 		if i % 500000 == 499999 {
@@ -660,7 +665,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 	{
 		println!("preparing {} ...", GEO_MEASUREMENT_NAME);
 
-		let mut cases = cases.rekeyed(|(state_id, district_id, _, _)| {
+		let cases = cases.rekeyed(|(state_id, district_id, _, _)| {
 			Some((*state_id, *district_id))
 		});
 		// XXX: This is dangerous and needs to be accounted for in the dashboar **carefully**, otherwise we accidentally double the numbers of berlin...
@@ -720,6 +725,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 			&[
 				"population".into(),
 				"icu_covid_cases".into(),
+				"icu_covid_cases_invasive".into(),
 				"icu_beds_free".into(),
 				"icu_beds_in_use".into(),
 				"vacc_first_cum".into(),
@@ -738,6 +744,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 			&[
 				&population,
 				&icu_load.curr_covid_cases,
+				&icu_load.curr_covid_cases_invasive,
 				&icu_load.curr_beds_free,
 				&icu_load.curr_beds_in_use,
 				&vacc.first_vacc.cum,
@@ -759,8 +766,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 	{
 		println!("preparing {} ...", GEO_LIGHT_MEASUREMENT_NAME);
 
-		let mut cases = cases.rekeyed(|(state_id, _, _, _)| {
-			Some((*state_id))
+		let cases = cases.rekeyed(|(state_id, _, _, _)| {
+			Some(*state_id)
 		});
 		// XXX: This is dangerous and needs to be accounted for in the dashboar **carefully**, otherwise we accidentally double the numbers of berlin...
 		/* let berlin = covid::find_berlin_districts(&districts);
@@ -769,19 +776,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 		let vacc = vacc.rekeyed(|(state_id, district_id, _)| {
 			// drop vaccinations without properly defined state + district
 			match (state_id, district_id) {
-				(Some(state_id), Some(district_id)) => Some((*state_id)),
+				(Some(state_id), Some(_)) => Some(*state_id),
 				_ => None,
 			}
 		});
 		let vacc: SubmittableVaccinationData<_> = vacc.into();
 		let icu_load: SubmittableICULoadData<_> = icu_load.rekeyed(|(state_id, _)| {
-			Some((*state_id))
+			Some(*state_id)
 		}).into();
 		let hosp: SubmittableHospitalizationData<_> = hosp.rekeyed(|(state_id, _)| {
-			Some((*state_id))
+			Some(*state_id)
 		}).into();
 		let population: Submittable<_> = population.rekeyed(|(state_id, _)| {
-			Some((*state_id))
+			Some(*state_id)
 		}).into();
 		let mut keys = covid::joined_keyset_ref!(
 			_,
@@ -820,6 +827,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 			&[
 				"population".into(),
 				"icu_covid_cases".into(),
+				"icu_covid_cases_invasive".into(),
 				"icu_beds_free".into(),
 				"icu_beds_in_use".into(),
 				"vacc_first_cum".into(),
@@ -842,6 +850,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 			&[
 				&population,
 				&icu_load.curr_covid_cases,
+				&icu_load.curr_covid_cases_invasive,
 				&icu_load.curr_beds_free,
 				&icu_load.curr_beds_in_use,
 				&vacc.first_vacc.cum,

@@ -39,6 +39,8 @@ fn write_measurement<W: io::Write>(w: &mut W, s: &str) -> io::Result<()> {
 	write_escaped(w, s, &['\\', ',', ' ', '\t', '\n', '\r'])
 }
 
+// may be useful at some point
+#[allow(dead_code)]
 fn write_str<W: io::Write>(w: &mut W, s: &str) -> io::Result<()> {
 	w.write(&b"\""[..])?;
 	write_escaped(w, s, &['\\', '"'])?;
