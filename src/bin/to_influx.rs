@@ -11,7 +11,13 @@ use chrono::NaiveDate;
 use csv;
 
 use covid;
-use covid::{StateId, DistrictId, DistrictInfo, InfectionRecord, Counters, FullCaseKey, StepMeter, CountMeter, TtySink, global_start_date, naive_today, DiffRecord, CounterGroup, SubmittableCounterGroup, Submittable, GeoCaseKey, ProgressSink, ICULoadRecord};
+use covid::{StateId, DistrictId, DistrictInfo, InfectionRecord, Counters, FullCaseKey, CountMeter, TtySink, global_start_date, naive_today, DiffRecord, CounterGroup, SubmittableCounterGroup, Submittable, GeoCaseKey, ProgressSink, ICULoadRecord, VaccinationKey, VaccinationRecord, VaccinationLevel, HospitalizationRecord, AgeGroup, TimeSeriesKey};
+
+
+static GEO_MEASUREMENT_NAME: &'static str = "data_v2_geo";
+static GEO_LIGHT_MEASUREMENT_NAME: &'static str = "data_v2_geo_light";
+static DEMO_MEASUREMENT_NAME: &'static str = "data_v2_demo";
+static DEMO_LIGHT_MEASUREMENT_NAME: &'static str = "data_v2_demo_light";
 
 
 struct RawCaseData {
@@ -112,7 +118,7 @@ impl ParboiledCaseData {
 }
 
 
-struct CookedCaseData<T: Hash + Clone + Eq> {
+struct CookedCaseData<T: TimeSeriesKey> {
 	pub cases_by_pub: CounterGroup<T>,
 	pub case_delay_total: Counters<T>,
 	pub cases_by_ref: CounterGroup<T>,
@@ -136,8 +142,8 @@ impl CookedCaseData<FullCaseKey> {
 	}
 }
 
-impl<T: Hash + Clone + Eq> CookedCaseData<T> {
-	pub fn rekeyed<U: Hash + Clone + Eq, F: Fn(&T) -> U>(&self, f: F) -> CookedCaseData<U> {
+impl<T: TimeSeriesKey> CookedCaseData<T> {
+	pub fn rekeyed<U: TimeSeriesKey, F: Fn(&T) -> Option<U>>(&self, f: F) -> CookedCaseData<U> {
 		CookedCaseData::<U>{
 			cases_by_pub: self.cases_by_pub.rekeyed(&f),
 			case_delay_total: self.case_delay_total.rekeyed(&f),
@@ -148,10 +154,20 @@ impl<T: Hash + Clone + Eq> CookedCaseData<T> {
 			recovered: self.recovered.rekeyed(&f),
 		}
 	}
+
+	pub fn synthesize<U: TimeSeriesKey>(&mut self, kin: &[&T], kout: T) {
+		self.cases_by_pub.synthesize(kin, kout.clone());
+		self.case_delay_total.synthesize(kin, kout.clone());
+		self.cases_by_ref.synthesize(kin, kout.clone());
+		self.cases_by_report.synthesize(kin, kout.clone());
+		self.deaths.synthesize(kin, kout.clone());
+		self.deaths_by_pub.synthesize(kin, kout.clone());
+		self.recovered.synthesize(kin, kout.clone());
+	}
 }
 
 
-struct SubmittableCaseData<T: Hash + Clone + Eq> {
+struct SubmittableCaseData<T: TimeSeriesKey> {
 	pub cases_by_pub: SubmittableCounterGroup<T>,
 	pub case_delay_total: Submittable<T>,
 	pub cases_by_ref: SubmittableCounterGroup<T>,
@@ -161,7 +177,7 @@ struct SubmittableCaseData<T: Hash + Clone + Eq> {
 	pub recovered: SubmittableCounterGroup<T>,
 }
 
-impl<T: Hash + Clone + Eq> From<CookedCaseData<T>> for SubmittableCaseData<T> {
+impl<T: TimeSeriesKey> From<CookedCaseData<T>> for SubmittableCaseData<T> {
 	fn from(other: CookedCaseData<T>) -> Self {
 		Self{
 			cases_by_pub: other.cases_by_pub.into(),
@@ -176,14 +192,15 @@ impl<T: Hash + Clone + Eq> From<CookedCaseData<T>> for SubmittableCaseData<T> {
 }
 
 
-struct ICULoadData {
-	pub curr_covid_cases: Counters<GeoCaseKey>,
-	pub curr_covid_cases_invasive: Counters<GeoCaseKey>,
-	pub curr_beds_free: Counters<GeoCaseKey>,
-	pub curr_beds_in_use: Counters<GeoCaseKey>,
+#[derive(Clone)]
+struct ICULoadData<T: TimeSeriesKey> {
+	pub curr_covid_cases: Counters<T>,
+	pub curr_covid_cases_invasive: Counters<T>,
+	pub curr_beds_free: Counters<T>,
+	pub curr_beds_in_use: Counters<T>,
 }
 
-impl ICULoadData {
+impl ICULoadData<GeoCaseKey> {
 	fn new(start: NaiveDate, end: NaiveDate) -> Self {
 		Self{
 			curr_covid_cases: Counters::new(start, end),
@@ -194,14 +211,207 @@ impl ICULoadData {
 	}
 }
 
+impl<T: TimeSeriesKey> ICULoadData<T> {
+	pub fn rekeyed<U: TimeSeriesKey, F: Fn(&T) -> Option<U>>(&self, f: F) -> ICULoadData<U> {
+		ICULoadData::<U>{
+			curr_covid_cases: self.curr_covid_cases.rekeyed(&f),
+			curr_covid_cases_invasive: self.curr_covid_cases_invasive.rekeyed(&f),
+			curr_beds_free: self.curr_beds_free.rekeyed(&f),
+			curr_beds_in_use: self.curr_beds_in_use.rekeyed(&f),
+		}
+	}
+}
 
-fn stream_data<K: Hash + Clone + Eq>(
+
+struct SubmittableICULoadData<T: TimeSeriesKey> {
+	pub curr_covid_cases: Submittable<T>,
+	pub curr_covid_cases_invasive: Submittable<T>,
+	pub curr_beds_free: Submittable<T>,
+	pub curr_beds_in_use: Submittable<T>,
+}
+
+impl<T: TimeSeriesKey> From<ICULoadData<T>> for SubmittableICULoadData<T> {
+	fn from(other: ICULoadData<T>) -> Self {
+		Self{
+			curr_covid_cases: other.curr_covid_cases.into(),
+			curr_covid_cases_invasive: other.curr_covid_cases_invasive.into(),
+			curr_beds_free: other.curr_beds_free.into(),
+			curr_beds_in_use: other.curr_beds_in_use.into(),
+		}
+	}
+}
+
+
+struct RawVaccinationData {
+	pub first_vacc: Counters<VaccinationKey>,
+	pub basic_vacc: Counters<VaccinationKey>,
+	pub full_vacc: Counters<VaccinationKey>,
+}
+
+impl RawVaccinationData {
+	fn new(start: NaiveDate, end: NaiveDate) -> Self {
+		Self{
+			first_vacc: Counters::new(start, end),
+			basic_vacc: Counters::new(start, end),
+			full_vacc: Counters::new(start, end),
+		}
+	}
+
+	fn submit(
+			&mut self,
+			district_map: &HashMap<DistrictId, Arc<DistrictInfo>>,
+			rec: &VaccinationRecord)
+	{
+		let mapped_district_id = match rec.district_id.0 {
+			// Bundesfoo, unmap
+			Some(district_id) if district_id == 17000 => None,
+			v => v,
+		};
+		let state_id = match mapped_district_id {
+			Some(district_id) => {
+				let district_info = district_map.get(&district_id).expect("district not found");
+				Some(district_info.state.id)
+			},
+			None => None,
+		};
+		let k = (state_id, mapped_district_id, rec.age_group);
+		let ts = match rec.level {
+			VaccinationLevel::First => &mut self.first_vacc,
+			VaccinationLevel::Basic => &mut self.basic_vacc,
+			VaccinationLevel::Full => &mut self.full_vacc,
+		};
+		let index = ts.date_index(rec.date).expect("date out of range");
+		ts.get_or_create(k)[index] += rec.count;
+	}
+}
+
+
+struct CookedVaccinationData<T: TimeSeriesKey> {
+	pub first_vacc: CounterGroup<T>,
+	pub basic_vacc: CounterGroup<T>,
+	pub full_vacc: CounterGroup<T>,
+}
+
+impl CookedVaccinationData<VaccinationKey> {
+	fn cook(raw: RawVaccinationData) -> Self {
+		Self{
+			first_vacc: CounterGroup::from_d1(raw.first_vacc),
+			basic_vacc: CounterGroup::from_d1(raw.basic_vacc),
+			full_vacc: CounterGroup::from_d1(raw.full_vacc),
+		}
+	}
+}
+
+impl<T: TimeSeriesKey> CookedVaccinationData<T> {
+	pub fn rekeyed<U: TimeSeriesKey, F: Fn(&T) -> Option<U>>(&self, f: F) -> CookedVaccinationData<U> {
+		CookedVaccinationData::<U>{
+			first_vacc: self.first_vacc.rekeyed(&f),
+			basic_vacc: self.basic_vacc.rekeyed(&f),
+			full_vacc: self.full_vacc.rekeyed(&f),
+		}
+	}
+
+	pub fn synthesize<U: TimeSeriesKey>(&mut self, kin: &[&T], kout: T) {
+		self.first_vacc.synthesize(kin, kout.clone());
+		self.basic_vacc.synthesize(kin, kout.clone());
+		self.full_vacc.synthesize(kin, kout.clone());
+	}
+}
+
+
+struct SubmittableVaccinationData<T: TimeSeriesKey> {
+	pub first_vacc: SubmittableCounterGroup<T>,
+	pub basic_vacc: SubmittableCounterGroup<T>,
+	pub full_vacc: SubmittableCounterGroup<T>,
+}
+
+impl<T: TimeSeriesKey> From<CookedVaccinationData<T>> for SubmittableVaccinationData<T> {
+	fn from(other: CookedVaccinationData<T>) -> Self {
+		Self{
+			first_vacc: other.first_vacc.into(),
+			basic_vacc: other.basic_vacc.into(),
+			full_vacc: other.full_vacc.into(),
+		}
+	}
+}
+
+
+struct RawHospitalizationData {
+	pub cases_d7: Counters<(StateId, AgeGroup)>,
+}
+
+impl RawHospitalizationData {
+	fn new(start: NaiveDate, end: NaiveDate) -> Self {
+		Self{
+			cases_d7: Counters::new(start, end),
+		}
+	}
+
+	fn submit(
+			&mut self,
+			rec: &HospitalizationRecord)
+	{
+		// sum of everything, we don't want that
+		if rec.state_id == 0 {
+			return
+		}
+		let index = match self.cases_d7.date_index(rec.date) {
+			Some(i) => i,
+			// hospitalization data may have today's data, which does not
+			// match the publication rhythm of the data -> skip
+			None => return,
+		};
+		let k = (rec.state_id, rec.age_group);
+		self.cases_d7.get_or_create(k)[index] += rec.cases_d7;
+	}
+}
+
+struct CookedHospitalizationData<T: TimeSeriesKey> {
+	pub cases: CounterGroup<T>,
+}
+
+impl CookedHospitalizationData<(StateId, AgeGroup)> {
+	fn cook(raw: RawHospitalizationData) -> Self {
+		Self{
+			cases: CounterGroup::from_d7(raw.cases_d7),
+		}
+	}
+}
+
+impl<T: TimeSeriesKey> CookedHospitalizationData<T> {
+	pub fn rekeyed<U: TimeSeriesKey, F: Fn(&T) -> Option<U>>(&self, f: F) -> CookedHospitalizationData<U> {
+		CookedHospitalizationData::<U>{
+			cases: self.cases.rekeyed(&f),
+		}
+	}
+
+	pub fn synthesize<U: TimeSeriesKey>(&mut self, kin: &[&T], kout: T) {
+		self.cases.synthesize(kin, kout.clone());
+	}
+}
+
+struct SubmittableHospitalizationData<T: TimeSeriesKey> {
+	pub cases: SubmittableCounterGroup<T>,
+}
+
+impl<T: TimeSeriesKey> From<CookedHospitalizationData<T>> for SubmittableHospitalizationData<T> {
+	fn from(other: CookedHospitalizationData<T>) -> Self {
+		Self{
+			cases: other.cases.into(),
+		}
+	}
+}
+
+
+
+fn stream_data<K: TimeSeriesKey>(
 		sink: &covid::influxdb::Client,
 		measurement: &str,
 		tags: Vec<SmartString>,
 		keyset: &[(&K, Vec<SmartString>)],
 		data: &SubmittableCaseData<K>,
-		population: Option<&covid::Submittable<K>>,
+		extra_fields: &[SmartString],
+		extra_vecs: &[&Submittable<K>],
 		) -> Result<(), covid::influxdb::Error>
 {
 	let mut fields = vec![
@@ -259,10 +469,8 @@ fn stream_data<K: Hash + Clone + Eq>(
 		&data.recovered.d7,
 		&data.recovered.d7s7,
 	];
-	if let Some(population) = population {
-		vecs.push(&population);
-		fields.push("population".into());
-	}
+	fields.extend_from_slice(extra_fields);
+	vecs.extend_from_slice(extra_vecs);
 
 	covid::stream(
 		sink,
@@ -322,31 +530,96 @@ fn load_case_data<'s, P: AsRef<Path>, S: ProgressSink>(
 }
 
 
-fn load_divi_load_data<P: AsRef<Path>>(p: P, data: &mut ICULoadData) -> io::Result<()> {
+fn load_divi_load_data<P: AsRef<Path>, S: ProgressSink>(s: &mut S, p: P, data: &mut ICULoadData<GeoCaseKey>) -> io::Result<()> {
 	let r = covid::magic_open(p)?;
 	let mut r = csv::Reader::from_reader(r);
-	for row in r.deserialize() {
+	let mut pm = CountMeter::new(s);
+	let mut n = 0;
+	for (i, row) in r.deserialize().enumerate() {
 		let rec: ICULoadRecord = row?;
-		let index = data.curr_covid_cases.date_index(rec.date).expect("date out of range");
+		let index = match data.curr_covid_cases.date_index(rec.date) {
+			Some(i) => i,
+			// DIVI data may have today's data, which does not match the
+			// publication rhythm of the data -> skip
+			None => continue,
+		};
 		let k = (rec.state_id, rec.district_id);
 		data.curr_covid_cases.get_or_create(k)[index] = rec.current_covid_cases as u64;
 		data.curr_covid_cases_invasive.get_or_create(k)[index] = rec.current_covid_cases_invasive_ventilation as u64;
 		data.curr_beds_free.get_or_create(k)[index] = rec.beds_free as u64;
 		data.curr_beds_in_use.get_or_create(k)[index] = rec.beds_in_use as u64;
+		if i % 500000 == 499999 {
+			pm.update(i+1);
+		}
+		n = i+1;
 	}
+	pm.finish(n);
+	Ok(())
+}
+
+
+fn load_vacc_data<'s, P: AsRef<Path>, S: ProgressSink>(
+		s: &'s mut S,
+		p: P,
+		district_map: &HashMap<DistrictId, Arc<DistrictInfo>>,
+		data: &mut RawVaccinationData,
+) -> io::Result<()> {
+	let r = covid::magic_open(p)?;
+	let mut r = csv::Reader::from_reader(r);
+	let mut pm = CountMeter::new(s);
+	let mut n = 0;
+	for (i, row) in r.deserialize().enumerate() {
+		let rec: VaccinationRecord = row?;
+		data.submit(district_map, &rec);
+		if i % 500000 == 499999 {
+			pm.update(i+1);
+		}
+		n = i+1;
+	}
+	pm.finish(n);
+	Ok(())
+}
+
+
+fn load_hosp_data<'s, P: AsRef<Path>, S: ProgressSink>(
+		s: &'s mut S,
+		p: P,
+		data: &mut RawHospitalizationData
+) -> io::Result<()> {
+	let r = covid::magic_open(p)?;
+	let mut r = csv::Reader::from_reader(r);
+	let mut pm = CountMeter::new(s);
+	let mut n = 0;
+	for (i, row) in r.deserialize().enumerate() {
+		let rec: HospitalizationRecord = match row {
+			Ok(v) => v,
+			// for some reason, they have NA in some cells?!
+			Err(e) => continue,
+		};
+		data.submit(&rec);
+		if i % 500000 == 499999 {
+			pm.update(i+1);
+		}
+		n = i+1;
+	}
+	pm.finish(n);
 	Ok(())
 }
 
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
 	let argv: Vec<String> = std::env::args().collect();
-	let cases = &argv[1];
+	let casefile = &argv[1];
 	let districts = &argv[2];
 	let difffile = &argv[3];
-	let (states, districts) = {
+	let divifile = &argv[4];
+	let vaccfile = &argv[5];
+	let hospfile = &argv[6];
+	let (states, mut districts) = {
 		let mut r = std::fs::File::open(districts)?;
 		covid::load_rki_districts(&mut r)?
 	};
+	covid::inject_berlin(&states, &mut districts);
 	let start = global_start_date();
 	let end = naive_today();
 
@@ -356,41 +629,76 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 		let k = (district.state.id, district.id);
 		population.get_or_create(k).fill(district.population);
 	}
-	let population: Submittable<_> = population.into();
 
-	let mut raw_counters = RawCaseData::new(start, end);
+	let mut cases = RawCaseData::new(start, end);
 	println!("loading case data ...");
-	load_case_data(&mut TtySink::stdout(), cases, &districts, &mut raw_counters)?;
+	load_case_data(&mut TtySink::stdout(), casefile, &districts, &mut cases)?;
 
-	let mut diff_counters = ParboiledCaseData::new(start, end);
+	let mut diff_cases = ParboiledCaseData::new(start, end);
 	println!("loading diff data ...");
-	load_diff_data(&mut TtySink::stdout(), difffile, &districts, &mut diff_counters)?;
+	load_diff_data(&mut TtySink::stdout(), difffile, &districts, &mut diff_cases)?;
+
+	let mut icu_load = ICULoadData::new(start, end);
+	println!("loading ICU data ...");
+	load_divi_load_data(&mut TtySink::stdout(), divifile, &mut icu_load)?;
+
+	let mut vacc = RawVaccinationData::new(start, end);
+	println!("loading vaccination data ...");
+	load_vacc_data(&mut TtySink::stdout(), vaccfile, &districts, &mut vacc)?;
+
+	let mut hosp = RawHospitalizationData::new(start, end);
+	println!("loading hospitalization data ...");
+	load_hosp_data(&mut TtySink::stdout(), hospfile, &mut hosp)?;
 
 	println!("crunching ...");
-	let counters = CookedCaseData::cook(raw_counters, diff_counters);
+	let cases = CookedCaseData::cook(cases, diff_cases);
+	let vacc = CookedVaccinationData::cook(vacc);
+	let hosp = CookedHospitalizationData::cook(hosp);
 
 	let client = covid::influxdb::Client::new("http://127.0.0.1:8086".into(), covid::influxdb::Auth::None);
 
 	{
-		println!("preparing rki_data_v1_geo ...");
+		println!("preparing {} ...", GEO_MEASUREMENT_NAME);
 
-		let data: SubmittableCaseData<_> = counters.rekeyed(|(state_id, district_id, _, _)| {
-			(*state_id, *district_id)
-		}).into();
+		let mut cases = cases.rekeyed(|(state_id, district_id, _, _)| {
+			Some((*state_id, *district_id))
+		});
+		// XXX: This is dangerous and needs to be accounted for in the dashboar **carefully**, otherwise we accidentally double the numbers of berlin...
+		/* let berlin = covid::find_berlin_districts(&districts);
+		data.synthesize(&berlin[..], &(11, 11000)); */
+		let cases: SubmittableCaseData<_> = cases.into();
+		let vacc = vacc.rekeyed(|(state_id, district_id, _)| {
+			// drop vaccinations without properly defined state + district
+			match (state_id, district_id) {
+				(Some(state_id), Some(district_id)) => Some((*state_id, *district_id)),
+				_ => None,
+			}
+		});
+		let vacc: SubmittableVaccinationData<_> = vacc.into();
+		let icu_load: SubmittableICULoadData<_> = icu_load.clone().into();
+		let population: Submittable<_> = population.clone().into();
 		let mut keys = covid::joined_keyset_ref!(
 			_,
-			&data.cases_by_report.cum,
-			&data.cases_by_ref.cum,
-			&data.cases_by_pub.cum,
-			&data.deaths.cum,
-			&data.deaths_by_pub.cum,
-			&data.recovered.cum
+			&cases.cases_by_report.cum,
+			&cases.cases_by_ref.cum,
+			&cases.cases_by_pub.cum,
+			&cases.deaths.cum,
+			&cases.deaths_by_pub.cum,
+			&cases.recovered.cum,
+			&icu_load.curr_beds_free,
+			&vacc.first_vacc.cum,
+			&vacc.basic_vacc.cum,
+			&vacc.full_vacc.cum,
+			&population
 		);
 		let keys: Vec<_> = keys.drain().map(|k| {
 			let state_id = k.0;
 			let district_id = k.1;
 			let state_name = &states.get(&state_id).unwrap().name;
-			let district_name = &districts.get(&district_id).unwrap().name;
+			let district_name = match &districts.get(&district_id) {
+				Some(i) => &i.name,
+				None => panic!("failed to find district {} in data", district_id),
+			};
 			let tagv: Vec<SmartString> = vec![
 				state_name.into(),
 				district_name.into(),
@@ -398,36 +706,180 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 			(k, tagv)
 		}).collect();
 
-		println!("streaming rki_data_v1_geo ...");
+		println!("streaming {} ...",GEO_MEASUREMENT_NAME);
 
 		stream_data(
 			&client,
-			"rki_data_v1_geo",
+			GEO_MEASUREMENT_NAME,
 			vec![
 				"state".into(),
 				"district".into(),
 			],
 			&keys,
-			&data,
-			Some(&population),
+			&cases,
+			&[
+				"population".into(),
+				"icu_covid_cases".into(),
+				"icu_beds_free".into(),
+				"icu_beds_in_use".into(),
+				"vacc_first_cum".into(),
+				"vacc_first_d1".into(),
+				"vacc_first_d7".into(),
+				"vacc_first_d7s7".into(),
+				"vacc_basic_cum".into(),
+				"vacc_basic_d1".into(),
+				"vacc_basic_d7".into(),
+				"vacc_basic_d7s7".into(),
+				"vacc_full_cum".into(),
+				"vacc_full_d1".into(),
+				"vacc_full_d7".into(),
+				"vacc_full_d7s7".into(),
+			],
+			&[
+				&population,
+				&icu_load.curr_covid_cases,
+				&icu_load.curr_beds_free,
+				&icu_load.curr_beds_in_use,
+				&vacc.first_vacc.cum,
+				&vacc.first_vacc.d1,
+				&vacc.first_vacc.d7,
+				&vacc.first_vacc.d7s7,
+				&vacc.basic_vacc.cum,
+				&vacc.basic_vacc.d1,
+				&vacc.basic_vacc.d7,
+				&vacc.basic_vacc.d7s7,
+				&vacc.full_vacc.cum,
+				&vacc.full_vacc.d1,
+				&vacc.full_vacc.d7,
+				&vacc.full_vacc.d7s7,
+			],
 		)?;
 	}
 
 	{
-		println!("preparing rki_data_v1_demo ...");
+		println!("preparing {} ...", GEO_LIGHT_MEASUREMENT_NAME);
 
-		let data: SubmittableCaseData<_> = counters.rekeyed(|(state_id, _, ag, s)| {
-			(*state_id, *ag, *s)
+		let mut cases = cases.rekeyed(|(state_id, _, _, _)| {
+			Some((*state_id))
+		});
+		// XXX: This is dangerous and needs to be accounted for in the dashboar **carefully**, otherwise we accidentally double the numbers of berlin...
+		/* let berlin = covid::find_berlin_districts(&districts);
+		data.synthesize(&berlin[..], &(11, 11000)); */
+		let cases: SubmittableCaseData<_> = cases.into();
+		let vacc = vacc.rekeyed(|(state_id, district_id, _)| {
+			// drop vaccinations without properly defined state + district
+			match (state_id, district_id) {
+				(Some(state_id), Some(district_id)) => Some((*state_id)),
+				_ => None,
+			}
+		});
+		let vacc: SubmittableVaccinationData<_> = vacc.into();
+		let icu_load: SubmittableICULoadData<_> = icu_load.rekeyed(|(state_id, _)| {
+			Some((*state_id))
 		}).into();
-		drop(counters);
+		let hosp: SubmittableHospitalizationData<_> = hosp.rekeyed(|(state_id, _)| {
+			Some((*state_id))
+		}).into();
+		let population: Submittable<_> = population.rekeyed(|(state_id, _)| {
+			Some((*state_id))
+		}).into();
 		let mut keys = covid::joined_keyset_ref!(
 			_,
-			&data.cases_by_report.cum,
-			&data.cases_by_ref.cum,
-			&data.cases_by_pub.cum,
-			&data.deaths.cum,
-			&data.deaths_by_pub.cum,
-			&data.recovered.cum
+			&cases.cases_by_report.cum,
+			&cases.cases_by_ref.cum,
+			&cases.cases_by_pub.cum,
+			&cases.deaths.cum,
+			&cases.deaths_by_pub.cum,
+			&cases.recovered.cum,
+			&icu_load.curr_beds_free,
+			&vacc.first_vacc.cum,
+			&vacc.basic_vacc.cum,
+			&vacc.full_vacc.cum,
+			&hosp.cases.cum,
+			&population
+		);
+		let keys: Vec<_> = keys.drain().map(|k| {
+			let state_id = k;
+			let state_name = &states.get(&state_id).unwrap().name;
+			let tagv: Vec<SmartString> = vec![
+				state_name.into(),
+			];
+			(k, tagv)
+		}).collect();
+
+		println!("streaming {} ...",GEO_LIGHT_MEASUREMENT_NAME);
+
+		stream_data(
+			&client,
+			GEO_LIGHT_MEASUREMENT_NAME,
+			vec![
+				"state".into(),
+			],
+			&keys,
+			&cases,
+			&[
+				"population".into(),
+				"icu_covid_cases".into(),
+				"icu_beds_free".into(),
+				"icu_beds_in_use".into(),
+				"vacc_first_cum".into(),
+				"vacc_first_d1".into(),
+				"vacc_first_d7".into(),
+				"vacc_first_d7s7".into(),
+				"vacc_basic_cum".into(),
+				"vacc_basic_d1".into(),
+				"vacc_basic_d7".into(),
+				"vacc_basic_d7s7".into(),
+				"vacc_full_cum".into(),
+				"vacc_full_d1".into(),
+				"vacc_full_d7".into(),
+				"vacc_full_d7s7".into(),
+				"hosp_cum".into(),
+				"hosp_d1".into(),
+				"hosp_d7".into(),
+				"hosp_d7s7".into(),
+			],
+			&[
+				&population,
+				&icu_load.curr_covid_cases,
+				&icu_load.curr_beds_free,
+				&icu_load.curr_beds_in_use,
+				&vacc.first_vacc.cum,
+				&vacc.first_vacc.d1,
+				&vacc.first_vacc.d7,
+				&vacc.first_vacc.d7s7,
+				&vacc.basic_vacc.cum,
+				&vacc.basic_vacc.d1,
+				&vacc.basic_vacc.d7,
+				&vacc.basic_vacc.d7s7,
+				&vacc.full_vacc.cum,
+				&vacc.full_vacc.d1,
+				&vacc.full_vacc.d7,
+				&vacc.full_vacc.d7s7,
+				&hosp.cases.cum,
+				&hosp.cases.d1,
+				&hosp.cases.d7,
+				&hosp.cases.d7s7,
+			],
+		)?;
+	}
+
+	{
+		println!("preparing {} ...", DEMO_MEASUREMENT_NAME);
+
+		let new_cases: SubmittableCaseData<_> = cases.rekeyed(|(state_id, _, ag, s)| {
+			Some((*state_id, *ag, *s))
+		}).into();
+		drop(cases);
+		let cases = new_cases;
+		let mut keys = covid::joined_keyset_ref!(
+			_,
+			&cases.cases_by_report.cum,
+			&cases.cases_by_ref.cum,
+			&cases.cases_by_pub.cum,
+			&cases.deaths.cum,
+			&cases.deaths_by_pub.cum,
+			&cases.recovered.cum
 		);
 		let keys: Vec<_> = keys.drain().map(|k| {
 			let state_id = k.0;
@@ -440,19 +892,20 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 			(k, tagv)
 		}).collect();
 
-		println!("streaming rki_data_v1_demo ...");
+		println!("streaming {} ...", DEMO_MEASUREMENT_NAME);
 
 		stream_data(
 			&client,
-			"rki_data_v1_demo",
+			DEMO_MEASUREMENT_NAME,
 			vec![
 				"state".into(),
 				"age".into(),
 				"sex".into(),
 			],
 			&keys,
-			&data,
-			None,
+			&cases,
+			&[],
+			&[],
 		)?;
 	}
 

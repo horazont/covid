@@ -27,76 +27,7 @@ pub fn global_start_date() -> NaiveDate {
 }
 
 
-pub struct CounterGroup<T: Hash + Eq + Clone> {
-	cum: Counters<T>,
-	d1: Counters<T>,
-	d7: Counters<T>,
-	d7s7: Counters<T>,
-}
-
-impl<T: Hash + Eq + Clone> CounterGroup<T> {
-	pub fn from_d1(d1: Counters<T>) -> Self {
-		let mut cum = d1.clone();
-		cum.cumsum();
-		let mut d7 = cum.clone();
-		d7.diff(7);
-		let mut d7s7 = d7.clone();
-		d7s7.shift_fwd(7);
-		Self{
-			cum,
-			d1,
-			d7,
-			d7s7,
-		}
-	}
-
-	pub fn rekeyed<U: Hash + Clone + Eq, F: Fn(&T) -> U>(&self, f: F) -> CounterGroup<U> {
-		CounterGroup::<U>{
-			cum: self.cum.rekeyed(&f),
-			d1: self.d1.rekeyed(&f),
-			d7: self.d7.rekeyed(&f),
-			d7s7: self.d7s7.rekeyed(&f),
-		}
-	}
-
-	pub fn cum(&self) -> &Counters<T> {
-		&self.cum
-	}
-
-	pub fn d1(&self) -> &Counters<T> {
-		&self.d1
-	}
-
-	pub fn d7(&self) -> &Counters<T> {
-		&self.d7
-	}
-
-	pub fn d7s7(&self) -> &Counters<T> {
-		&self.d7s7
-	}
-}
-
-
-pub struct SubmittableCounterGroup<T: Hash + Eq + Clone> {
-	pub cum: Submittable<T>,
-	pub d1: Submittable<T>,
-	pub d7: Submittable<T>,
-	pub d7s7: Submittable<T>,
-}
-
-impl<T: Hash + Eq + Clone> From<CounterGroup<T>> for SubmittableCounterGroup<T> {
-	fn from(other: CounterGroup<T>) -> SubmittableCounterGroup<T> {
-		Self{
-			cum: other.cum.into(),
-			d1: other.d1.into(),
-			d7: other.d7.into(),
-			d7s7: other.d7s7.into(),
-		}
-	}
-}
-
-
-pub fn stream<'a, K: Hash + Eq + Clone, S: ProgressSink>(
+pub fn stream<'a, K: TimeSeriesKey, S: ProgressSink>(
 		sink: &influxdb::Client,
 		progress: &'a mut S,
 		measurement: &str,

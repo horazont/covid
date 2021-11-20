@@ -61,6 +61,55 @@ impl ReportFlag {
 	}
 }
 
+#[repr(transparent)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct MaybeDistrictId(pub Option<DistrictId>);
+
+impl Deref for MaybeDistrictId {
+	type Target = Option<DistrictId>;
+
+	fn deref(&self) -> &Self::Target {
+		&self.0
+	}
+}
+
+impl DerefMut for MaybeDistrictId {
+	fn deref_mut(&mut self) -> &mut Self::Target {
+		&mut self.0
+	}
+}
+
+impl From<MaybeDistrictId> for Option<DistrictId> {
+	fn from(other: MaybeDistrictId) -> Self {
+		other.0
+	}
+}
+
+impl From<Option<DistrictId>> for MaybeDistrictId {
+	fn from(other: Option<DistrictId>) -> Self {
+		Self(other)
+	}
+}
+
+impl FromStr for MaybeDistrictId {
+	type Err = ParseIntError;
+
+	fn from_str(s: &str) -> Result<Self, Self::Err> {
+		if s == "u" {
+			return Ok(MaybeDistrictId(None))
+		}
+		Ok(MaybeDistrictId(Some(s.parse::<DistrictId>()?)))
+	}
+}
+
+impl<'de> Deserialize<'de> for MaybeDistrictId {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+        where D: Deserializer<'de>
+    {
+        let s = String::deserialize(deserializer)?;
+        FromStr::from_str(&s).map_err(de::Error::custom)
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct AgeGroup {
@@ -127,9 +176,11 @@ impl FromStr for AgeGroup {
 	type Err = ParseAgeGroupError;
 
 	fn from_str(s: &str) -> Result<Self, Self::Err> {
-		if !s.starts_with("A") {
-			return Err(ParseAgeGroupError::NoLeadingA)
-		}
+		let s = if s.starts_with("A") {
+			&s[1..]
+		} else {
+			s
+		};
 		if s.ends_with("+") {
 			let num = &s[1..(s.len()-1)];
 			let lower_bound = FromStr::from_str(num)?;
@@ -139,11 +190,11 @@ impl FromStr for AgeGroup {
 			Some(v) => v,
 			None => return Err(ParseAgeGroupError::NoSeparator),
 		};
-		if !low.starts_with("A") || !high.starts_with("A") {
-			return Err(ParseAgeGroupError::NoLeadingA);
-		}
-		let low = &low[1..];
-		let high = &high[1..];
+		let high = if high.starts_with("A") {
+			&high[1..]
+		} else {
+			high
+		};
 		Ok(Self {
 			low: FromStr::from_str(low)?,
 			high: Some(FromStr::from_str(high)?),
@@ -186,7 +237,7 @@ impl<'de> Deserialize<'de> for MaybeAgeGroup {
         where D: Deserializer<'de>
     {
         let s = String::deserialize(deserializer)?;
-        if s == "unbekannt" {
+        if s == "unbekannt" || s == "u" {
 			return Ok(MaybeAgeGroup(None))
 		} else {
 			return Ok(MaybeAgeGroup(Some(FromStr::from_str(&s).map_err(de::Error::custom)?)))
@@ -331,4 +382,77 @@ impl DiffRecord {
 	pub fn write<W: io::Write>(&self, w: &mut W) -> io::Result<()> {
 		write!(w, "{},{},{},{},{},{},{},{},{}\n", self.date, self.district_id, self.age_group, self.sex, self.delay_total, self.late_cases, self.cases, self.deaths, self.recovered)
 	}
+}
+
+
+pub type VaccinationKey = (Option<StateId>, Option<DistrictId>, MaybeAgeGroup);
+
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, Deserialize)]
+pub enum VaccinationLevel {
+	#[serde(rename = "1")]
+	First,
+	#[serde(rename = "2")]
+	Basic,
+	#[serde(rename = "3")]
+	Full,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct VaccinationRecord {
+	#[serde(rename = "Impfdatum")]
+	pub date: NaiveDate,
+	#[serde(rename = "LandkreisId_Impfort")]
+	pub district_id: MaybeDistrictId,
+	#[serde(rename = "Altersgruppe")]
+	pub age_group: MaybeAgeGroup,
+	#[serde(rename = "Impfschutz")]
+	pub level: VaccinationLevel,
+	#[serde(rename = "Anzahl")]
+	pub count: u64,
+}
+
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct HospitalizationRecord {
+	#[serde(rename = "Datum")]
+	pub date: NaiveDate,
+	#[serde(rename = "Bundesland_Id")]
+	pub state_id: StateId,
+	#[serde(rename = "Altersgruppe")]
+	pub age_group: AgeGroup,
+	#[serde(rename = "7T_Hospitalisierung_Faelle")]
+	pub cases_d7: u64,
+}
+
+
+pub fn find_berlin_districts(districts: &HashMap<DistrictId, Arc<DistrictInfo>>) -> Vec<GeoCaseKey> {
+	let mut result = Vec::new();
+	for district in districts.values() {
+		let state_id = district.state.id;
+		if state_id != 11 {
+			continue
+		}
+
+		result.push((state_id, district.id));
+	}
+	result
+}
+
+pub fn inject_berlin(
+		states: &HashMap<DistrictId, Arc<StateInfo>>,
+		districts: &mut HashMap<DistrictId, Arc<DistrictInfo>>,
+) {
+	let mut total_pop = 0;
+	for (id, district) in districts.iter() {
+		if *id >= 11000 && *id < 12000 {
+			total_pop += district.population;
+		}
+	}
+
+	districts.insert(11000, Arc::new(DistrictInfo{
+		id: 11000,
+		state: states.get(&11).unwrap().clone(),
+		name: "Berlin gesamt".into(),
+		population: total_pop,
+	}));
 }

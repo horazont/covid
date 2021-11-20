@@ -1,9 +1,14 @@
 use std::collections::HashMap;
+use std::convert::TryInto;
 use std::hash::Hash;
 
 use num_traits::Zero;
 
 use chrono::NaiveDate;
+
+
+pub trait TimeSeriesKey: Hash + Eq + Clone + std::fmt::Debug {}
+impl<T: Hash + Eq + Clone + std::fmt::Debug> TimeSeriesKey for T {}
 
 
 #[derive(Debug, Clone)]
@@ -55,7 +60,7 @@ impl<T: Hash + Eq, V: Copy> TimeSeries<T, V> {
 	}
 }
 
-impl<T: Hash + Clone + Eq, V: Copy + Zero> TimeSeries<T, V> {
+impl<T: TimeSeriesKey, V: Copy + Zero> TimeSeries<T, V> {
 	pub fn get_or_create(&mut self, k: T) -> &mut [V] {
 		let index = self.get_index_or_create(k);
 		&mut self.time_series[index][..]
@@ -68,6 +73,19 @@ impl<T: Hash + Clone + Eq, V: Copy + Zero> TimeSeries<T, V> {
 				let v = self.time_series.len();
 				let mut vec = Vec::with_capacity(self.len);
 				vec.resize(self.len, V::zero());
+				self.time_series.push(vec);
+				self.keys.insert(k, v);
+				v
+			},
+		}
+	}
+
+	fn get_index_or_insert(&mut self, k: T, vec: Vec<V>) -> usize {
+		assert_eq!(vec.len(), self.len);
+		match self.keys.get(&k) {
+			Some(v) => *v,
+			None => {
+				let v = self.time_series.len();
 				self.time_series.push(vec);
 				self.keys.insert(k, v);
 				v
@@ -94,10 +112,19 @@ impl<T: Hash + Clone + Eq, V: Copy + Zero> TimeSeries<T, V> {
 	pub fn keys(&self) -> std::collections::hash_map::Keys<'_, T, usize> {
 		self.keys.keys()
 	}
+
+	fn reverse_index(&self, i: usize) -> Option<&T> {
+		for (k, v) in self.keys.iter() {
+			if *v == i {
+				return Some(k)
+			}
+		}
+		None
+	}
 }
 
-impl<T: Hash + Clone + Eq> TimeSeries<T, u64> {
-	pub fn rekeyed<U: Hash + Clone + Eq, F: Fn(&T) -> U>(&self, f: F) -> TimeSeries<U, u64> {
+impl<T: TimeSeriesKey> TimeSeries<T, u64> {
+	pub fn rekeyed<U: TimeSeriesKey, F: Fn(&T) -> Option<U>>(&self, f: F) -> TimeSeries<U, u64> {
 		let mut result = TimeSeries::<U, u64>{
 			start: self.start,
 			len: self.len,
@@ -105,7 +132,10 @@ impl<T: Hash + Clone + Eq> TimeSeries<T, u64> {
 			time_series: Vec::new(),
 		};
 		for (k_old, index_old) in self.keys.iter() {
-			let k_new = f(&k_old);
+			let k_new = match f(&k_old) {
+				Some(k) => k,
+				None => continue,
+			};
 			let ts_new = result.get_or_create(k_new);
 			let ts_old = &self.time_series[*index_old][..];
 			assert_eq!(ts_new.len(), ts_old.len());
@@ -119,6 +149,27 @@ impl<T: Hash + Clone + Eq> TimeSeries<T, u64> {
 			}
 		}
 		result
+	}
+
+	pub fn synthesize(&mut self, kin: &[&T], kout: T) {
+		let mut vtemp = Vec::new();
+		vtemp.resize(self.len, 0);
+		for k in kin {
+			let tsin = match self.get(k) {
+				Some(ts) => ts,
+				None => continue,
+			};
+			assert_eq!(tsin.len(), vtemp.len());
+			for i in 0..tsin.len() {
+				// This is safe because we asserted that both slices have the
+				// same length and the loop is only going up to that length
+				// minus one.
+				unsafe {
+					*vtemp.get_unchecked_mut(i) += *tsin.get_unchecked(i);
+				}
+			}
+		}
+		self.get_index_or_insert(kout, vtemp);
 	}
 
 	pub fn cumsum(&mut self) {
@@ -141,6 +192,51 @@ impl<T: Hash + Clone + Eq> TimeSeries<T, u64> {
 			vec.rotate_right(offset);
 			vec[..offset].fill(0);
 		}
+	}
+
+	pub fn unrolled(&self, window_size: usize) -> Self {
+		// NOTE: this unrolling isn't perfect. In some corner cases (probably with actual bogus data), we end up in situations where a counter would go negative. We then carry the number over to the next slot, which is fine as far as the totals go.
+		// The problem is however that this still causes a slight difference when compared to influxdb outputs, I guess can happen in some weird cases (for instane, if a hospitalization is recorded in a 7 day sum in district A and then retracted on the next day (without back-correctign the previous one) and moved to another district and district A never sees another hospitalization again (i.e. the negative carry can never be resolved)).
+		// The overall difference is something like a dozen or so, so good enough™.
+		// Most of the difference is also currently accured during the beginning of the pandemic, so it's rather likely that these are artifacts caused by retractions or somesuch.
+		let mut result = self.clone();
+		for (vec_index, dst) in result.time_series.iter_mut().enumerate() {
+			let src = &self.time_series[vec_index];
+			let mut neg_carry: u64 = 0;
+			for i in 0..dst.len() {
+				let v_l: i64 = if i < window_size {
+					0
+				} else {
+					dst[i-window_size].try_into().unwrap()
+				};
+				let v_p: i64 = if i > 0 {
+					src[i-1].try_into().unwrap()
+				} else {
+					0
+				};
+				let v_c: i64 = src[i].try_into().unwrap();
+				let new = (v_c - v_p) + v_l;
+				let new: u64 = if new < 0 {
+					// this can happen on weird data. we smooth this out by carrying the negative result downward
+					let to_carry = (-new) as u64;
+					neg_carry += to_carry;
+					0
+				} else {
+					let mut new = new as u64;
+					// this is essentially a saturating sub, while keeping the leftover in neg_carry
+					if neg_carry >= new {
+						neg_carry -= new;
+						new = 0;
+					} else {
+						new -= neg_carry;
+						neg_carry = 0;
+					}
+					new
+				};
+				dst[i] = new as u64;
+			}
+		}
+		result
 	}
 
 	pub fn shift_fwd(&mut self, offset: usize) {
@@ -173,7 +269,7 @@ macro_rules! joined_keyset_ref {
 }
 
 
-impl<T: Hash + Eq + Clone> From<TimeSeries<T, u64>> for TimeSeries<T, f64> {
+impl<T: TimeSeriesKey> From<TimeSeries<T, u64>> for TimeSeries<T, f64> {
 	fn from(mut other: TimeSeries<T, u64>) -> Self {
 		// the most evil thing.
 		for vec in other.time_series.iter_mut() {
@@ -188,6 +284,96 @@ impl<T: Hash + Eq + Clone> From<TimeSeries<T, u64>> for TimeSeries<T, f64> {
 			len: other.len,
 			keys: other.keys,
 			time_series: unsafe { std::mem::transmute::<Vec<Vec<u64>>, Vec<Vec<f64>>>(other.time_series) },
+		}
+	}
+}
+
+
+pub struct CounterGroup<T: TimeSeriesKey> {
+	cum: Counters<T>,
+	d1: Counters<T>,
+	d7: Counters<T>,
+	d7s7: Counters<T>,
+}
+
+impl<T: TimeSeriesKey> CounterGroup<T> {
+	pub fn from_d1(d1: Counters<T>) -> Self {
+		let mut cum = d1.clone();
+		cum.cumsum();
+		let mut d7 = cum.clone();
+		d7.diff(7);
+		let mut d7s7 = d7.clone();
+		d7s7.shift_fwd(7);
+		Self{
+			cum,
+			d1,
+			d7,
+			d7s7,
+		}
+	}
+
+	pub fn from_d7(d7: Counters<T>) -> Self {
+		let d1 = d7.unrolled(7);
+		let mut cum = d1.clone();
+		cum.cumsum();
+		let mut d7s7 = d7.clone();
+		d7s7.shift_fwd(7);
+		Self{
+			cum,
+			d1,
+			d7,
+			d7s7,
+		}
+	}
+
+	pub fn rekeyed<U: TimeSeriesKey, F: Fn(&T) -> Option<U>>(&self, f: F) -> CounterGroup<U> {
+		CounterGroup::<U>{
+			cum: self.cum.rekeyed(&f),
+			d1: self.d1.rekeyed(&f),
+			d7: self.d7.rekeyed(&f),
+			d7s7: self.d7s7.rekeyed(&f),
+		}
+	}
+
+	pub fn synthesize(&mut self, kin: &[&T], kout: T) {
+		self.cum.synthesize(kin, kout.clone());
+		self.d1.synthesize(kin, kout.clone());
+		self.d7.synthesize(kin, kout.clone());
+		self.d7s7.synthesize(kin, kout);
+	}
+
+	pub fn cum(&self) -> &Counters<T> {
+		&self.cum
+	}
+
+	pub fn d1(&self) -> &Counters<T> {
+		&self.d1
+	}
+
+	pub fn d7(&self) -> &Counters<T> {
+		&self.d7
+	}
+
+	pub fn d7s7(&self) -> &Counters<T> {
+		&self.d7s7
+	}
+}
+
+
+pub struct SubmittableCounterGroup<T: TimeSeriesKey> {
+	pub cum: Submittable<T>,
+	pub d1: Submittable<T>,
+	pub d7: Submittable<T>,
+	pub d7s7: Submittable<T>,
+}
+
+impl<T: TimeSeriesKey> From<CounterGroup<T>> for SubmittableCounterGroup<T> {
+	fn from(other: CounterGroup<T>) -> SubmittableCounterGroup<T> {
+		Self{
+			cum: other.cum.into(),
+			d1: other.d1.into(),
+			d7: other.d7.into(),
+			d7s7: other.d7s7.into(),
 		}
 	}
 }
