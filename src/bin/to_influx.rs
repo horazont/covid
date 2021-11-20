@@ -660,7 +660,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 	let vacc = CookedVaccinationData::cook(vacc);
 	let hosp = CookedHospitalizationData::cook(hosp);
 
-	let client = covid::influxdb::Client::new("http://127.0.0.1:8086".into(), covid::influxdb::Auth::None);
+	let client = covid::env_client();
 
 	{
 		println!("preparing {} ...", GEO_MEASUREMENT_NAME);

@@ -1,3 +1,5 @@
+use std::env;
+
 use chrono::{NaiveDate, Utc, TimeZone, Datelike};
 
 use smartstring::alias::{String as SmartString};
@@ -76,4 +78,21 @@ pub fn stream<'a, K: TimeSeriesKey, S: ProgressSink + ?Sized>(
 	}
 	pm.finish();
 	Ok(())
+}
+
+pub fn env_client() -> influxdb::Client {
+	let user = env::var("INFLUXDB_USER");
+	let pass = env::var("INFLUXDB_PASSWORD");
+	let auth = match (user, pass) {
+		(Ok(username), Ok(password)) => influxdb::Auth::HTTP{
+			username,
+			password
+		},
+		(Ok(_), Err(e)) | (Err(e), Ok(_)) => panic!("failed to read env for INFLUXDB_USER/INFLUXDB_PASSWORD: {}", e),
+		(Err(_), Err(_)) => influxdb::Auth::None,
+	};
+	influxdb::Client::new(
+		env::var("INFLUXDB_URL").unwrap_or("http://127.0.0.1:8086".into()),
+		auth,
+	)
 }
