@@ -190,18 +190,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 	let mut counters = PartialDiffData::new(start, end);
 
 	println!("loading existing records ...");
-	try_load_existing(&mut TtySink::stdout(), datafile, &mut counters)?;
+	try_load_existing(&mut covid::default_output(), datafile, &mut counters)?;
 
 	for pair in argv[2..].chunks(2) {
 		let newfile = &pair[0];
 		// subtract one because the publication refers to the day before
 		let date = pair[1].parse::<NaiveDate>()? - chrono::Duration::days(1);
 		println!("merging new records ({} -> {}) ...", newfile, date);
-		merge_new(&mut TtySink::stdout(), newfile, date, &mut counters)?;
+		merge_new(&mut covid::default_output(), newfile, date, &mut counters)?;
 	}
 
 	println!("rewriting records ...");
-	writeback(&mut TtySink::stdout(), datafile, &counters)?;
+	writeback(&mut covid::default_output(), datafile, &counters)?;
 
 	Ok(())
 }

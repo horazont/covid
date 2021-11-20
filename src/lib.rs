@@ -27,7 +27,7 @@ pub fn global_start_date() -> NaiveDate {
 }
 
 
-pub fn stream<'a, K: TimeSeriesKey, S: ProgressSink>(
+pub fn stream<'a, K: TimeSeriesKey, S: ProgressSink + ?Sized>(
 		sink: &influxdb::Client,
 		progress: &'a mut S,
 		measurement: &str,

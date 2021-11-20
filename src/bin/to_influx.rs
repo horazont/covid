@@ -11,7 +11,7 @@ use chrono::NaiveDate;
 use csv;
 
 use covid;
-use covid::{StateId, DistrictId, DistrictInfo, InfectionRecord, Counters, FullCaseKey, CountMeter, TtySink, global_start_date, naive_today, DiffRecord, CounterGroup, SubmittableCounterGroup, Submittable, GeoCaseKey, ProgressSink, ICULoadRecord, VaccinationKey, VaccinationRecord, VaccinationLevel, HospitalizationRecord, AgeGroup, TimeSeriesKey};
+use covid::{StateId, DistrictId, DistrictInfo, InfectionRecord, Counters, FullCaseKey, CountMeter, global_start_date, naive_today, DiffRecord, CounterGroup, SubmittableCounterGroup, Submittable, GeoCaseKey, ProgressSink, ICULoadRecord, VaccinationKey, VaccinationRecord, VaccinationLevel, HospitalizationRecord, AgeGroup, TimeSeriesKey};
 
 
 static GEO_MEASUREMENT_NAME: &'static str = "data_v2_geo";
@@ -474,7 +474,7 @@ fn stream_data<K: TimeSeriesKey>(
 
 	covid::stream(
 		sink,
-		&mut TtySink::stdout(),
+		&mut *covid::default_output(),
 		measurement,
 		tags,
 		fields,
@@ -484,7 +484,7 @@ fn stream_data<K: TimeSeriesKey>(
 }
 
 
-fn load_diff_data<'s, P: AsRef<Path>, S: ProgressSink>(
+fn load_diff_data<'s, P: AsRef<Path>, S: ProgressSink + ?Sized>(
 		s: &'s mut S,
 		p: P,
 		district_map: &HashMap<DistrictId, Arc<DistrictInfo>>,
@@ -507,7 +507,7 @@ fn load_diff_data<'s, P: AsRef<Path>, S: ProgressSink>(
 }
 
 
-fn load_case_data<'s, P: AsRef<Path>, S: ProgressSink>(
+fn load_case_data<'s, P: AsRef<Path>, S: ProgressSink + ?Sized>(
 		s: &'s mut S,
 		p: P,
 		district_map: &HashMap<DistrictId, Arc<DistrictInfo>>,
@@ -530,7 +530,7 @@ fn load_case_data<'s, P: AsRef<Path>, S: ProgressSink>(
 }
 
 
-fn load_divi_load_data<P: AsRef<Path>, S: ProgressSink>(s: &mut S, p: P, data: &mut ICULoadData<GeoCaseKey>) -> io::Result<()> {
+fn load_divi_load_data<P: AsRef<Path>, S: ProgressSink + ?Sized>(s: &mut S, p: P, data: &mut ICULoadData<GeoCaseKey>) -> io::Result<()> {
 	let r = covid::magic_open(p)?;
 	let mut r = csv::Reader::from_reader(r);
 	let mut pm = CountMeter::new(s);
@@ -558,7 +558,7 @@ fn load_divi_load_data<P: AsRef<Path>, S: ProgressSink>(s: &mut S, p: P, data: &
 }
 
 
-fn load_vacc_data<'s, P: AsRef<Path>, S: ProgressSink>(
+fn load_vacc_data<'s, P: AsRef<Path>, S: ProgressSink + ?Sized>(
 		s: &'s mut S,
 		p: P,
 		district_map: &HashMap<DistrictId, Arc<DistrictInfo>>,
@@ -581,7 +581,7 @@ fn load_vacc_data<'s, P: AsRef<Path>, S: ProgressSink>(
 }
 
 
-fn load_hosp_data<'s, P: AsRef<Path>, S: ProgressSink>(
+fn load_hosp_data<'s, P: AsRef<Path>, S: ProgressSink + ?Sized>(
 		s: &'s mut S,
 		p: P,
 		data: &mut RawHospitalizationData
@@ -632,23 +632,23 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 	let mut cases = RawCaseData::new(start, end);
 	println!("loading case data ...");
-	load_case_data(&mut TtySink::stdout(), casefile, &districts, &mut cases)?;
+	load_case_data(&mut *covid::default_output(), casefile, &districts, &mut cases)?;
 
 	let mut diff_cases = ParboiledCaseData::new(start, end);
 	println!("loading diff data ...");
-	load_diff_data(&mut TtySink::stdout(), difffile, &districts, &mut diff_cases)?;
+	load_diff_data(&mut *covid::default_output(), difffile, &districts, &mut diff_cases)?;
 
 	let mut icu_load = ICULoadData::new(start, end);
 	println!("loading ICU data ...");
-	load_divi_load_data(&mut TtySink::stdout(), divifile, &mut icu_load)?;
+	load_divi_load_data(&mut *covid::default_output(), divifile, &mut icu_load)?;
 
 	let mut vacc = RawVaccinationData::new(start, end);
 	println!("loading vaccination data ...");
-	load_vacc_data(&mut TtySink::stdout(), vaccfile, &districts, &mut vacc)?;
+	load_vacc_data(&mut *covid::default_output(), vaccfile, &districts, &mut vacc)?;
 
 	let mut hosp = RawHospitalizationData::new(start, end);
 	println!("loading hospitalization data ...");
-	load_hosp_data(&mut TtySink::stdout(), hospfile, &mut hosp)?;
+	load_hosp_data(&mut *covid::default_output(), hospfile, &mut hosp)?;
 
 	println!("crunching ...");
 	let cases = CookedCaseData::cook(cases, diff_cases);

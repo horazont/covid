@@ -17,3 +17,4 @@ base64 = { version = "^0.13" }
 bytes = { version = "^1" }
 flate2 = { version = "^1" }
 num-traits = { version = "^0.2" }
+isatty = { version = "^0.1" }

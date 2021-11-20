@@ -2,18 +2,13 @@ use std::fmt::Write;
 use std::io;
 use std::time;
 
+use isatty;
 
-/* pub struct ProgressMeter {
-	t0: time::Instant,
-	tprev: time::Instant,
-	iprev: usize,
-	n: Option<usize>,
-} */
 
 pub struct NullSink();
 
 impl ProgressSink for NullSink {
-	fn update(&mut self, _status: Status, _rate: f64) {}
+	fn update(&mut self, _status: Status, _elapsed: time::Duration, _rate: f64) {}
 	fn finish(&mut self) {}
 }
 
@@ -23,11 +18,11 @@ pub enum Status {
 }
 
 pub trait ProgressSink {
-	fn update(&mut self, status: Status, rate: f64);
+	fn update(&mut self, status: Status, elapsed: time::Duration, rate: f64);
 	fn finish(&mut self);
 }
 
-pub struct StepMeter<'x, S: ProgressSink> {
+pub struct StepMeter<'x, S: ProgressSink + ?Sized> {
 	s: &'x mut S,
 	t0: time::Instant,
 	tprev: time::Instant,
@@ -35,7 +30,7 @@ pub struct StepMeter<'x, S: ProgressSink> {
 	n: usize,
 }
 
-impl<'x, S: ProgressSink> StepMeter<'x, S> {
+impl<'x, S: ProgressSink + ?Sized> StepMeter<'x, S> {
 	pub fn new(s: &'x mut S, n: usize) -> Self {
 		let t0 = time::Instant::now();
 		Self{
@@ -54,25 +49,25 @@ impl<'x, S: ProgressSink> StepMeter<'x, S> {
 		self.iprev = inow;
 		self.tprev = tnow;
 
-		self.s.update(Status::Step(inow, self.n), (di as f64) / dt);
+		self.s.update(Status::Step(inow, self.n), tnow - self.t0, (di as f64) / dt);
 	}
 
 	pub fn finish(self) {
 		let tnow = time::Instant::now();
 		let dt = (tnow - self.t0).as_secs_f64();
-		self.s.update(Status::Step(self.n, self.n), self.n as f64 / dt);
+		self.s.update(Status::Step(self.n, self.n), tnow - self.t0, self.n as f64 / dt);
 		self.s.finish();
 	}
 }
 
-pub struct CountMeter<'x, S: ProgressSink> {
+pub struct CountMeter<'x, S: ProgressSink + ?Sized> {
 	s: &'x mut S,
 	t0: time::Instant,
 	tprev: time::Instant,
 	iprev: usize,
 }
 
-impl<'x, S: ProgressSink> CountMeter<'x, S> {
+impl<'x, S: ProgressSink + ?Sized> CountMeter<'x, S> {
 	pub fn new(s: &'x mut S) -> Self {
 		let t0 = time::Instant::now();
 		Self{
@@ -90,13 +85,13 @@ impl<'x, S: ProgressSink> CountMeter<'x, S> {
 		self.iprev = inow;
 		self.tprev = tnow;
 
-		self.s.update(Status::Count(inow), (di as f64) / dt);
+		self.s.update(Status::Count(inow), tnow - self.t0, (di as f64) / dt);
 	}
 
 	pub fn finish(self, total: usize) {
 		let tnow = time::Instant::now();
 		let dt = (tnow - self.t0).as_secs_f64();
-		self.s.update(Status::Count(total), total as f64 / dt);
+		self.s.update(Status::Count(total), tnow - self.t0, total as f64 / dt);
 		self.s.finish();
 	}
 }
@@ -138,7 +133,7 @@ impl TtySink<io::Stdout> {
 }
 
 impl<W: io::Write> ProgressSink for TtySink<W> {
-	fn update(&mut self, status: Status, rate: f64) {
+	fn update(&mut self, status: Status, _elapsed: time::Duration, rate: f64) {
 		let ratio = status.ratio();
 		let count = status.count();
 		let mut rate_s = String::new();
@@ -188,5 +183,49 @@ impl<W: io::Write> ProgressSink for TtySink<W> {
 
 	fn finish(&mut self) {
 		let _ = write!(self.w, "\n");
+	}
+}
+
+pub struct SummarySink<W: io::Write> {
+	w: W,
+	last_info: Option<(Status, time::Duration)>,
+}
+
+impl<W: io::Write> SummarySink<W> {
+	fn new(w: W) -> Self {
+		Self{
+			w,
+			last_info: None,
+		}
+	}
+}
+
+impl<W: io::Write> ProgressSink for SummarySink<W> {
+	fn update(&mut self, status: Status, elapsed: time::Duration, _rate: f64) {
+		self.last_info = Some((status, elapsed))
+	}
+
+	fn finish(&mut self) {
+		match self.last_info.take() {
+			Some((status, elapsed)) => {
+				match status.count() {
+					Some(c) => {
+						write!(self.w, "... processed {} items in {:.2} seconds\n", c, elapsed.as_secs_f64())
+					},
+					None => {
+						write!(self.w, "... operation took {:.2} seconds\n", elapsed.as_secs_f64())
+					}
+				}.expect("failed to write summary to output");
+			},
+			None => (),
+		}
+	}
+}
+
+pub fn default_output() -> Box<dyn ProgressSink> {
+	if isatty::stdout_isatty() {
+		Box::new(TtySink::stdout())
+	} else {
+		Box::new(SummarySink::new(io::stdout()))
 	}
 }
