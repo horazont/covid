@@ -13,7 +13,7 @@ mod timeseries;
 
 pub use ioutil::magic_open;
 pub use rki::*;
-pub use progress::{ProgressMeter, ProgressSink};
+pub use progress::*;
 pub use divi::*;
 pub use timeseries::*;
 
@@ -77,13 +77,33 @@ impl<T: Hash + Eq + Clone> CounterGroup<T> {
 }
 
 
-pub fn stream<K: Hash + Eq + Clone>(
+pub struct SubmittableCounterGroup<T: Hash + Eq + Clone> {
+	pub cum: Submittable<T>,
+	pub d1: Submittable<T>,
+	pub d7: Submittable<T>,
+	pub d7s7: Submittable<T>,
+}
+
+impl<T: Hash + Eq + Clone> From<CounterGroup<T>> for SubmittableCounterGroup<T> {
+	fn from(other: CounterGroup<T>) -> SubmittableCounterGroup<T> {
+		Self{
+			cum: other.cum.into(),
+			d1: other.d1.into(),
+			d7: other.d7.into(),
+			d7s7: other.d7s7.into(),
+		}
+	}
+}
+
+
+pub fn stream<'a, K: Hash + Eq + Clone, S: ProgressSink>(
 		sink: &influxdb::Client,
+		progress: &'a mut S,
 		measurement: &str,
 		tags: Vec<SmartString>,
 		fields: Vec<SmartString>,
 		keyset: &[(&K, Vec<SmartString>)],
-		vecs: &[&Counters<K>],
+		vecs: &[&Submittable<K>],
 ) -> Result<(), influxdb::Error> {
 	#[cfg(debug_assertions)]
 	{
@@ -91,6 +111,7 @@ pub fn stream<K: Hash + Eq + Clone>(
 			assert!(ts.len() != tags.len());
 		}
 	}
+	assert!(fields.len() == vecs.len());
 
 	let mut readout = influxdb::Readout{
 		ts: Utc::today().and_hms(0, 0, 0),
@@ -103,13 +124,13 @@ pub fn stream<K: Hash + Eq + Clone>(
 
 	let ref_vec = &vecs[0];
 	let n = ref_vec.len();
-	let mut pm = ProgressMeter::start(Some(n));
+	let mut pm = StepMeter::new(progress, n);
 	for i in 0..n {
 		let nds = ref_vec.index_date(i as i64).unwrap();
 		readout.ts = Utc.ymd(nds.year(), nds.month(), nds.day()).and_hms(0, 0, 0);
 		// we can assume that any death and recovered has a case before that, which means that we can safely use the keyset of cases_rep_d1.
 		for (k_index, (k, tagv)) in keyset.iter().enumerate() {
-			let fieldv: Vec<_> = vecs.iter().map(|v| { v.get_value(&k, i).unwrap_or(0) as f64}).collect();
+			let fieldv: Vec<_> = vecs.iter().map(|v| { v.get_value(&k, i).unwrap_or(0.0)}).collect();
 			if k_index >= readout.samples.len() {
 				readout.samples.push(influxdb::Sample{
 					tagv: tagv.clone(),
@@ -124,6 +145,6 @@ pub fn stream<K: Hash + Eq + Clone>(
 			pm.update(i+1);
 		}
 	}
-	pm.finish(Some(n));
+	pm.finish();
 	Ok(())
 }

@@ -157,4 +157,43 @@ impl<T: Hash + Clone + Eq> TimeSeries<T, u64> {
 }
 
 
+#[macro_export]
+macro_rules! joined_keyset_ref {
+	($t:ty, $($b:expr),*) => {
+		{
+			let mut keyset: std::collections::HashSet<&$t> = std::collections::HashSet::new();
+			$(
+				for k in $b.keys() {
+					keyset.insert(k);
+				}
+			)*
+			keyset
+		}
+	}
+}
+
+
+impl<T: Hash + Eq + Clone> From<TimeSeries<T, u64>> for TimeSeries<T, f64> {
+	fn from(mut other: TimeSeries<T, u64>) -> Self {
+		// the most evil thing.
+		for vec in other.time_series.iter_mut() {
+			for v in vec.iter_mut() {
+				unsafe {
+					*v = std::mem::transmute::<f64, u64>(*v as f64);
+				}
+			}
+		}
+		Self{
+			start: other.start,
+			len: other.len,
+			keys: other.keys,
+			time_series: unsafe { std::mem::transmute::<Vec<Vec<u64>>, Vec<Vec<f64>>>(other.time_series) },
+		}
+	}
+}
+
+
 pub type Counters<T> = TimeSeries<T, u64>;
+pub type IGauge<T> = TimeSeries<T, u64>;
+pub type FGauge<T> = TimeSeries<T, f64>;
+pub type Submittable<T> = TimeSeries<T, f64>;
