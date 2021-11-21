@@ -143,6 +143,7 @@ struct CookedCaseData<T: TimeSeriesKey> {
 	pub deaths: CounterGroup<T>,
 	pub deaths_by_pub: CounterGroup<T>,
 	pub recovered: CounterGroup<T>,
+	pub recovered_by_pub: CounterGroup<T>,
 }
 
 impl CookedCaseData<FullCaseKey> {
@@ -155,6 +156,7 @@ impl CookedCaseData<FullCaseKey> {
 			deaths: CounterGroup::from_d1(raw.deaths),
 			deaths_by_pub: CounterGroup::from_d1(parboiled.deaths_by_pub),
 			recovered: CounterGroup::from_d1(raw.recovered),
+			recovered_by_pub: CounterGroup::from_d1(parboiled.recovered_by_pub),
 		}
 	}
 }
@@ -169,6 +171,7 @@ impl<T: TimeSeriesKey> CookedCaseData<T> {
 			deaths: self.deaths.rekeyed(&f),
 			deaths_by_pub: self.deaths_by_pub.rekeyed(&f),
 			recovered: self.recovered.rekeyed(&f),
+			recovered_by_pub: self.recovered_by_pub.rekeyed(&f),
 		}
 	}
 
@@ -182,6 +185,7 @@ impl<T: TimeSeriesKey> CookedCaseData<T> {
 		self.deaths.synthesize(kin, kout.clone());
 		self.deaths_by_pub.synthesize(kin, kout.clone());
 		self.recovered.synthesize(kin, kout.clone());
+		self.recovered_by_pub.synthesize(kin, kout.clone());
 	}
 }
 
@@ -194,6 +198,7 @@ struct SubmittableCaseData<T: TimeSeriesKey> {
 	pub deaths: SubmittableCounterGroup<T>,
 	pub deaths_by_pub: SubmittableCounterGroup<T>,
 	pub recovered: SubmittableCounterGroup<T>,
+	pub recovered_by_pub: SubmittableCounterGroup<T>,
 }
 
 impl<T: TimeSeriesKey> From<CookedCaseData<T>> for SubmittableCaseData<T> {
@@ -206,6 +211,7 @@ impl<T: TimeSeriesKey> From<CookedCaseData<T>> for SubmittableCaseData<T> {
 			deaths: other.deaths.into(),
 			deaths_by_pub: other.deaths_by_pub.into(),
 			recovered: other.recovered.into(),
+			recovered_by_pub: other.recovered_by_pub.into(),
 		}
 	}
 }
@@ -471,6 +477,10 @@ fn stream_data<K: TimeSeriesKey>(
 		"recovered_ref_d1".into(),
 		"recovered_ref_d7".into(),
 		"recovered_ref_d7s7".into(),
+		"recovered_pub_cum".into(),
+		"recovered_pub_d1".into(),
+		"recovered_pub_d7".into(),
+		"recovered_pub_d7s7".into(),
 	];
 
 	let mut vecs = vec![
@@ -499,6 +509,10 @@ fn stream_data<K: TimeSeriesKey>(
 		&data.recovered.d1,
 		&data.recovered.d7,
 		&data.recovered.d7s7,
+		&data.recovered_by_pub.cum,
+		&data.recovered_by_pub.d1,
+		&data.recovered_by_pub.d7,
+		&data.recovered_by_pub.d7s7,
 	];
 	fields.extend_from_slice(extra_fields);
 	vecs.extend_from_slice(extra_vecs);
