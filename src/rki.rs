@@ -182,7 +182,7 @@ impl FromStr for AgeGroup {
 			s
 		};
 		if s.ends_with("+") {
-			let num = &s[1..(s.len()-1)];
+			let num = &s[..(s.len()-1)];
 			let lower_bound = FromStr::from_str(num)?;
 			return Ok(Self{low: lower_bound, high: None})
 		}
