@@ -363,6 +363,8 @@ pub struct DiffRecord {
 	pub sex: Sex,
 	#[serde(rename = "VerzugGesamt")]
 	pub delay_total: u64,
+	#[serde(rename = "AnzahlFallVerzoegert")]
+	pub cases_delayed: u64,
 	#[serde(rename = "AnzahlFallVerspaetet")]
 	pub late_cases: u64,
 	#[serde(rename = "AnzahlFall")]
@@ -375,12 +377,12 @@ pub struct DiffRecord {
 
 impl DiffRecord {
 	pub fn write_header<W: io::Write>(w: &mut W) -> io::Result<()> {
-		w.write("Datum,LandkreisId,Altersgruppe,Geschlecht,VerzugGesamt,AnzahlFallVerspaetet,AnzahlFall,AnzahlTodesfall,AnzahlGenesen\n".as_bytes())?;
+		w.write("Datum,LandkreisId,Altersgruppe,Geschlecht,VerzugGesamt,AnzahlFallVerzoegert,AnzahlFallVerspaetet,AnzahlFall,AnzahlTodesfall,AnzahlGenesen\n".as_bytes())?;
 		Ok(())
 	}
 
 	pub fn write<W: io::Write>(&self, w: &mut W) -> io::Result<()> {
-		write!(w, "{},{},{},{},{},{},{},{},{}\n", self.date, self.district_id, self.age_group, self.sex, self.delay_total, self.late_cases, self.cases, self.deaths, self.recovered)
+		write!(w, "{},{},{},{},{},{},{},{},{},{}\n", self.date, self.district_id, self.age_group, self.sex, self.delay_total, self.cases_delayed, self.late_cases, self.cases, self.deaths, self.recovered)
 	}
 }
 

@@ -13,6 +13,7 @@ const DELAY_CUTOFF: i64 = 28;
 
 struct PartialDiffData {
 	pub cases_by_pub: Counters<PartialCaseKey>,
+	pub cases_delayed: Counters<PartialCaseKey>,
 	pub case_delay_total: Counters<PartialCaseKey>,
 	pub late_cases: Counters<PartialCaseKey>,
 	pub deaths_by_pub: Counters<PartialCaseKey>,
@@ -32,6 +33,7 @@ impl PartialDiffData {
 	fn new(start: NaiveDate, end: NaiveDate) -> Self {
 		Self{
 			cases_by_pub: Counters::new(start, end),
+			cases_delayed: Counters::new(start, end),
 			case_delay_total: Counters::new(start, end),
 			late_cases: Counters::new(start, end),
 			deaths_by_pub: Counters::new(start, end),
@@ -82,6 +84,7 @@ impl PartialDiffData {
 
 		let k = (rec.district_id, rec.age_group, rec.sex);
 		saturating_add_u64_i32(&mut self.cases_by_pub.get_or_create(k)[case_index], case_diff);
+		saturating_add_u64_i32(&mut self.cases_delayed.get_or_create(k)[case_index], case_delay_count);
 		saturating_add_u64_i32(&mut self.case_delay_total.get_or_create(k)[case_index], case_delay * case_delay_count);
 		saturating_add_u64_i32(&mut self.late_cases.get_or_create(k)[case_index], late_case_count);
 		saturating_add_u64_i32(&mut self.deaths_by_pub.get_or_create(k)[death_index], death_diff);
@@ -96,6 +99,7 @@ impl PartialDiffData {
 			let date = start + chrono::Duration::days(i as i64);
 			for k in self.cases_by_pub.keys() {
 				let cases = self.cases_by_pub.get_value(k, i).unwrap_or(0);
+				let cases_delayed = self.cases_delayed.get_value(k, i).unwrap_or(0);
 				let delay_total = self.case_delay_total.get_value(k, i).unwrap_or(0);
 				let late_cases = self.late_cases.get_value(k, i).unwrap_or(0);
 				let deaths = self.deaths_by_pub.get_value(k, i).unwrap_or(0);
@@ -111,6 +115,7 @@ impl PartialDiffData {
 					sex,
 					cases,
 					delay_total,
+					cases_delayed,
 					late_cases,
 					deaths,
 					recovered,
