@@ -10,7 +10,7 @@ use chrono::NaiveDate;
 use csv;
 
 use covid;
-use covid::{StateId, DistrictId, DistrictInfo, InfectionRecord, Counters, FullCaseKey, CountMeter, global_start_date, naive_today, DiffRecord, CounterGroup, SubmittableCounterGroup, Submittable, GeoCaseKey, ProgressSink, ICULoadRecord, VaccinationKey, VaccinationRecord, VaccinationLevel, HospitalizationRecord, AgeGroup, TimeSeriesKey};
+use covid::{StateId, DistrictId, DistrictInfo, InfectionRecord, Counters, FullCaseKey, CountMeter, global_start_date, naive_today, DiffRecord, CounterGroup, SubmittableCounterGroup, Submittable, GeoCaseKey, ProgressSink, ICULoadRecord, VaccinationKey, VaccinationRecord, VaccinationLevel, HospitalizationRecord, AgeGroup, TimeSeriesKey, DiffBaseRecord, Diff};
 
 
 static GEO_MEASUREMENT_NAME: &'static str = "data_v2_geo";
@@ -88,19 +88,19 @@ impl RawCaseData {
 
 
 struct ParboiledCaseData {
-	pub cases_by_pub: Counters<FullCaseKey>,
+	pub cases_by_pub: Diff<FullCaseKey>,
 	pub case_delay_total: Counters<FullCaseKey>,
-	pub deaths_by_pub: Counters<FullCaseKey>,
-	pub recovered_by_pub: Counters<FullCaseKey>,
+	pub deaths_by_pub: Diff<FullCaseKey>,
+	pub recovered_by_pub: Diff<FullCaseKey>,
 }
 
 impl ParboiledCaseData {
 	fn new(start: NaiveDate, end: NaiveDate) -> Self {
 		Self{
-			cases_by_pub: Counters::new(start, end),
+			cases_by_pub: Diff::new(start, end),
 			case_delay_total: Counters::new(start, end),
-			deaths_by_pub: Counters::new(start, end),
-			recovered_by_pub: Counters::new(start, end),
+			deaths_by_pub: Diff::new(start, end),
+			recovered_by_pub: Diff::new(start, end),
 		}
 	}
 
@@ -112,16 +112,10 @@ impl ParboiledCaseData {
 		let district_info = district_map.get(&rec.district_id).expect("unknown district");
 		let k = (district_info.state.id, rec.district_id, rec.age_group, rec.sex);
 		let ref_index = self.cases_by_pub.date_index(rec.date).expect("date out of range");
-		if rec.cases > 0 {
-			self.cases_by_pub.get_or_create(k)[ref_index] += rec.cases;
-			self.case_delay_total.get_or_create(k)[ref_index] += rec.delay_total;
-		}
-		if rec.deaths > 0 {
-			self.deaths_by_pub.get_or_create(k)[ref_index] += rec.deaths;
-		}
-		if rec.recovered > 0 {
-			self.recovered_by_pub.get_or_create(k)[ref_index] += rec.recovered;
-		}
+		self.cases_by_pub.get_or_create(k)[ref_index] += rec.cases;
+		self.case_delay_total.get_or_create(k)[ref_index] += rec.delay_total;
+		self.deaths_by_pub.get_or_create(k)[ref_index] += rec.deaths;
+		self.recovered_by_pub.get_or_create(k)[ref_index] += rec.recovered;
 	}
 
 	fn remapped<F: Fn(&FullCaseKey) -> Option<FullCaseKey>>(&self, f: F) -> ParboiledCaseData {
@@ -130,6 +124,44 @@ impl ParboiledCaseData {
 			case_delay_total: self.case_delay_total.rekeyed(&f),
 			deaths_by_pub: self.deaths_by_pub.rekeyed(&f),
 			recovered_by_pub: self.recovered_by_pub.rekeyed(&f),
+		}
+	}
+}
+
+
+struct ParboiledBaseCaseData {
+	pub cases_by_pub_cum: Counters<FullCaseKey>,
+	pub deaths_by_pub_cum: Counters<FullCaseKey>,
+	pub recovered_by_pub_cum: Counters<FullCaseKey>,
+}
+
+impl ParboiledBaseCaseData {
+	fn new(start: NaiveDate, end: NaiveDate) -> Self {
+		Self{
+			cases_by_pub_cum: Counters::new(start, end),
+			deaths_by_pub_cum: Counters::new(start, end),
+			recovered_by_pub_cum: Counters::new(start, end),
+		}
+	}
+
+	fn submit(
+			&mut self,
+			district_map: &HashMap<DistrictId, Arc<DistrictInfo>>,
+			rec: &DiffBaseRecord)
+	{
+		let district_info = district_map.get(&rec.district_id).expect("unknown district");
+		let k = (district_info.state.id, rec.district_id, rec.age_group, rec.sex);
+		let index = self.cases_by_pub_cum.date_index(rec.date).expect("date out of range");
+		self.cases_by_pub_cum.get_or_create(k)[index] = rec.cases_cum;
+		self.deaths_by_pub_cum.get_or_create(k)[index] = rec.deaths_cum;
+		self.recovered_by_pub_cum.get_or_create(k)[index] = rec.recovered_cum;
+	}
+
+	fn remapped<F: Fn(&FullCaseKey) -> Option<FullCaseKey>>(&self, f: F) -> ParboiledBaseCaseData {
+		ParboiledBaseCaseData{
+			cases_by_pub_cum: self.cases_by_pub_cum.rekeyed(&f),
+			deaths_by_pub_cum: self.deaths_by_pub_cum.rekeyed(&f),
+			recovered_by_pub_cum: self.recovered_by_pub_cum.rekeyed(&f),
 		}
 	}
 }
@@ -146,17 +178,37 @@ struct CookedCaseData<T: TimeSeriesKey> {
 	pub recovered_by_pub: CounterGroup<T>,
 }
 
+fn postprocess_cum<T: TimeSeriesKey>(mut cum_base: Counters<T>, d1: Diff<T>) -> Counters<T> {
+	let mut cum_add = d1;
+	cum_add.cumsum();
+	cum_base.rfill_zeroes();
+	cum_base.checked_add_signed(&cum_add);
+	cum_base
+}
+
 impl CookedCaseData<FullCaseKey> {
-	fn cook(raw: RawCaseData, parboiled: ParboiledCaseData) -> Self {
+	fn cook(raw: RawCaseData, parboiled: ParboiledCaseData, parboiled_base: ParboiledBaseCaseData) -> Self {
+		let cases_by_pub_cum = postprocess_cum(
+			parboiled_base.cases_by_pub_cum,
+			parboiled.cases_by_pub.clone(),
+		);
+		let deaths_by_pub_cum = postprocess_cum(
+			parboiled_base.deaths_by_pub_cum,
+			parboiled.deaths_by_pub.clone(),
+		);
+		let recovered_by_pub_cum = postprocess_cum(
+			parboiled_base.recovered_by_pub_cum,
+			parboiled.recovered_by_pub.clone(),
+		);
 		Self{
-			cases_by_pub: CounterGroup::from_d1(parboiled.cases_by_pub),
+			cases_by_pub: CounterGroup::from_d1_and_cum(parboiled.cases_by_pub.clamped(), cases_by_pub_cum),
 			case_delay_total: parboiled.case_delay_total,
 			cases_by_ref: CounterGroup::from_d1(raw.cases_by_ref),
 			cases_by_report: CounterGroup::from_d1(raw.cases_by_report),
 			deaths: CounterGroup::from_d1(raw.deaths),
-			deaths_by_pub: CounterGroup::from_d1(parboiled.deaths_by_pub),
+			deaths_by_pub: CounterGroup::from_d1_and_cum(parboiled.deaths_by_pub.clamped(), deaths_by_pub_cum),
 			recovered: CounterGroup::from_d1(raw.recovered),
-			recovered_by_pub: CounterGroup::from_d1(parboiled.recovered_by_pub),
+			recovered_by_pub: CounterGroup::from_d1_and_cum(parboiled.recovered_by_pub.clamped(), recovered_by_pub_cum),
 		}
 	}
 }
@@ -552,6 +604,29 @@ fn load_diff_data<'s, P: AsRef<Path>, S: ProgressSink + ?Sized>(
 }
 
 
+fn load_diff_base_data<'s, P: AsRef<Path>, S: ProgressSink + ?Sized>(
+		s: &'s mut S,
+		p: P,
+		district_map: &HashMap<DistrictId, Arc<DistrictInfo>>,
+		cases: &mut ParboiledBaseCaseData
+) -> io::Result<()> {
+	let r = covid::magic_open(p)?;
+	let mut r = csv::Reader::from_reader(r);
+	let mut pm = CountMeter::new(s);
+	let mut n = 0;
+	for (i, row) in r.deserialize().enumerate() {
+		let rec: DiffBaseRecord = row?;
+		cases.submit(district_map, &rec);
+		if i % 500000 == 499999 {
+			pm.update(i+1);
+		}
+		n = i+1;
+	}
+	pm.finish(n);
+	Ok(())
+}
+
+
 fn load_case_data<'s, P: AsRef<Path>, S: ProgressSink + ?Sized>(
 		s: &'s mut S,
 		p: P,
@@ -666,9 +741,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 	let casefile = &argv[1];
 	let districts = &argv[2];
 	let difffile = &argv[3];
-	let divifile = &argv[4];
-	let vaccfile = &argv[5];
-	let hospfile = &argv[6];
+	let diffbasefile = &argv[4];
+	let divifile = &argv[5];
+	let vaccfile = &argv[6];
+	let hospfile = &argv[7];
 	let (states, mut districts) = {
 		let mut r = std::fs::File::open(districts)?;
 		covid::load_rki_districts(&mut r)?
@@ -693,6 +769,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 	println!("loading case data ...");
 	load_case_data(&mut *covid::default_output(), casefile, &districts, &mut cases)?;
 	let cases = cases.remapped(|(state_id, district_id, mag, sex)| {
+		Some((*state_id, remap_berlin(*district_id), *mag, *sex))
+	});
+
+	let mut diff_base_cases = ParboiledBaseCaseData::new(start, end);
+	println!("loading diff base data ...");
+	load_diff_base_data(&mut *covid::default_output(), diffbasefile, &districts, &mut diff_base_cases)?;
+	let diff_base_cases = diff_base_cases.remapped(|(state_id, district_id, mag, sex)| {
 		Some((*state_id, remap_berlin(*district_id), *mag, *sex))
 	});
 
@@ -722,7 +805,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 	load_hosp_data(&mut *covid::default_output(), hospfile, &mut hosp)?;
 
 	println!("crunching ...");
-	let cases = CookedCaseData::cook(cases, diff_cases);
+	let cases = CookedCaseData::cook(cases, diff_cases, diff_base_cases);
 	let vacc = CookedVaccinationData::cook(vacc);
 	let hosp = CookedHospitalizationData::cook(hosp);
 

@@ -7,7 +7,7 @@ use std::str::FromStr;
 use std::sync::Arc;
 use std::hash::Hash;
 
-use serde::{de, Deserialize, Deserializer};
+use serde::{de, Deserialize, Serialize, Deserializer, Serializer};
 
 use chrono::naive::NaiveDate;
 
@@ -35,6 +35,15 @@ impl fmt::Display for Sex {
 			Self::Unknown => f.write_str("unbekannt"),
 		}
 	}
+}
+
+
+impl Serialize for Sex {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+        where S: Serializer
+    {
+		serializer.serialize_str(&self.to_string())
+    }
 }
 
 
@@ -232,6 +241,15 @@ impl<'de> Deserialize<'de> for AgeGroup {
 }
 
 
+impl Serialize for AgeGroup {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+        where S: Serializer
+    {
+		serializer.serialize_str(&self.to_string())
+    }
+}
+
+
 impl<'de> Deserialize<'de> for MaybeAgeGroup {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
         where D: Deserializer<'de>
@@ -246,12 +264,25 @@ impl<'de> Deserialize<'de> for MaybeAgeGroup {
 }
 
 
+impl Serialize for MaybeAgeGroup {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+        where S: Serializer
+    {
+		match self.0.as_ref() {
+			Some(v) => v.serialize(serializer),
+			None => serializer.serialize_str("u"),
+		}
+    }
+}
+
+
 fn legacy_date_compat<'de, D>(deserializer: D) -> Result<NaiveDate, D::Error>
 	where D: Deserializer<'de>
 {
 	let mut s = String::deserialize(deserializer)?;
 	if s.len() == 10 {
-		// plain ISO date
+		// plain ISO date or pseudo-ISO date
+		let s = s.replace("/", "-");
 		s.parse::<NaiveDate>().map_err(de::Error::custom)
 	} else if s.len() == 19 {
 		// full pseudo-ISO date
@@ -351,39 +382,29 @@ pub fn load_rki_districts<R: io::Read>(r: &mut R) -> Result<(HashMap<DistrictId,
 	Ok((states, districts))
 }
 
-#[derive(Debug, Clone, Deserialize)]
-pub struct DiffRecord {
-	#[serde(rename = "Datum")]
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct DiffBaseRecord {
 	pub date: NaiveDate,
-	#[serde(rename = "LandkreisId")]
 	pub district_id: DistrictId,
-	#[serde(rename = "Altersgruppe")]
 	pub age_group: MaybeAgeGroup,
-	#[serde(rename = "Geschlecht")]
 	pub sex: Sex,
-	#[serde(rename = "VerzugGesamt")]
-	pub delay_total: u64,
-	#[serde(rename = "AnzahlFallVerzoegert")]
-	pub cases_delayed: u64,
-	#[serde(rename = "AnzahlFallVerspaetet")]
-	pub late_cases: u64,
-	#[serde(rename = "AnzahlFall")]
-	pub cases: u64,
-	#[serde(rename = "AnzahlTodesfall")]
-	pub deaths: u64,
-	#[serde(rename = "AnzahlGenesen")]
-	pub recovered: u64,
+	pub cases_cum: u64,
+	pub deaths_cum: u64,
+	pub recovered_cum: u64,
 }
 
-impl DiffRecord {
-	pub fn write_header<W: io::Write>(w: &mut W) -> io::Result<()> {
-		w.write("Datum,LandkreisId,Altersgruppe,Geschlecht,VerzugGesamt,AnzahlFallVerzoegert,AnzahlFallVerspaetet,AnzahlFall,AnzahlTodesfall,AnzahlGenesen\n".as_bytes())?;
-		Ok(())
-	}
-
-	pub fn write<W: io::Write>(&self, w: &mut W) -> io::Result<()> {
-		write!(w, "{},{},{},{},{},{},{},{},{},{}\n", self.date, self.district_id, self.age_group, self.sex, self.delay_total, self.cases_delayed, self.late_cases, self.cases, self.deaths, self.recovered)
-	}
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct DiffRecord {
+	pub date: NaiveDate,
+	pub district_id: DistrictId,
+	pub age_group: MaybeAgeGroup,
+	pub sex: Sex,
+	pub delay_total: u64,
+	pub cases_delayed: u64,
+	pub late_cases: u64,
+	pub cases: i64,
+	pub deaths: i64,
+	pub recovered: i64,
 }
 
 

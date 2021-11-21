@@ -125,6 +125,15 @@ impl<T: TimeSeriesKey, V: Copy + Zero> TimeSeries<T, V> {
 	}
 }
 
+fn saturating_add_u64_i64(reg: &mut u64, v: i64) {
+	if v < 0 {
+		let v = (-v) as u64;
+		*reg = reg.saturating_sub(v);
+	} else {
+		*reg = reg.checked_add(v as u64).unwrap();
+	}
+}
+
 impl<T: TimeSeriesKey> TimeSeries<T, u64> {
 	pub fn rekeyed<U: TimeSeriesKey, F: Fn(&T) -> Option<U>>(&self, f: F) -> TimeSeries<U, u64> {
 		let mut result = TimeSeries::<U, u64>{
@@ -196,6 +205,70 @@ impl<T: TimeSeriesKey> TimeSeries<T, u64> {
 		}
 	}
 
+	pub fn rfill_zeroes(&mut self) {
+		for vec in self.time_series.iter_mut() {
+			let mut last_nonzero: Option<usize> = None;
+			for (i, v) in vec.iter().enumerate().rev() {
+				if *v != 0 {
+					last_nonzero = Some(i);
+					break;
+				}
+			}
+			match last_nonzero {
+				Some(i) if i + 1 < vec.len() => {
+					let v = vec[i];
+					vec[i+1..].fill(v);
+				},
+				_ => (),
+			}
+		}
+	}
+
+	pub fn add(&mut self, other: &Counters<T>) {
+		for (k, my_index) in self.keys.iter() {
+			let remote = match other.get(&k) {
+				Some(v) => v,
+				None => continue,
+			};
+			let local = &mut self.time_series[*my_index];
+			assert_eq!(local.len(), remote.len());
+			for i in 0..local.len() {
+				// SAFETY: iterating only up to len() and asserted that remote and local have the same length.
+				unsafe {
+					*local.get_unchecked_mut(i) += remote.get_unchecked(i);
+				}
+			}
+		}
+	}
+
+	pub fn checked_add_signed(&mut self, other: &Diff<T>) {
+		for (k, other_index) in other.keys.iter() {
+			let remote = &other.time_series[*other_index];
+			let local = self.get_or_create(k.clone());
+			assert_eq!(local.len(), remote.len());
+			for i in 0..local.len() {
+				// SAFETY: iterating only up to len() and asserted that remote and local have the same length.
+				unsafe {
+					saturating_add_u64_i64(local.get_unchecked_mut(i), *remote.get_unchecked(i));
+				}
+			}
+		}
+	}
+
+	pub fn sub_at(&mut self, at_local: usize, other: &Counters<T>, at_remote: usize) {
+		for (k, my_index) in self.keys.iter() {
+			let remote = match other.get(&k) {
+				Some(v) => v,
+				None => continue,
+			};
+			let local = &mut self.time_series[*my_index];
+			local[at_local] = match local[at_local].checked_sub(remote[at_remote]) {
+				Some(v) => v,
+				None => panic!("sub_at decreases below zero with diff {} on value {} at index {} in key {:?}", remote[at_remote], local[at_local], at_local, k)
+			};
+		}
+	}
+
 	pub fn unrolled(&self, window_size: usize) -> Self {
 		// NOTE: this unrolling isn't perfect. In some corner cases (probably with actual bogus data), we end up in situations where a counter would go negative. We then carry the number over to the next slot, which is fine as far as the totals go.
 		// The problem is however that this still causes a slight difference when compared to influxdb outputs, I guess can happen in some weird cases (for instane, if a hospitalization is recorded in a 7 day sum in district A and then retracted on the next day (without back-correctign the previous one) and moved to another district and district A never sees another hospitalization again (i.e. the negative carry can never be resolved)).
@@ -254,6 +327,68 @@ impl<T: TimeSeriesKey> TimeSeries<T, u64> {
 	}
 }
 
+impl<T: TimeSeriesKey> TimeSeries<T, i64> {
+	pub fn rekeyed<U: TimeSeriesKey, F: Fn(&T) -> Option<U>>(&self, f: F) -> TimeSeries<U, i64> {
+		let mut result = TimeSeries::<U, i64>{
+			start: self.start,
+			len: self.len,
+			keys: HashMap::new(),
+			time_series: Vec::new(),
+		};
+		for (k_old, index_old) in self.keys.iter() {
+			let k_new = match f(&k_old) {
+				Some(k) => k,
+				None => continue,
+			};
+			let ts_new = result.get_or_create(k_new);
+			let ts_old = &self.time_series[*index_old][..];
+			assert_eq!(ts_new.len(), ts_old.len());
+			for i in 0..ts_new.len() {
+				// This is safe because we asserted that both slices have the
+				// same length and the loop is only going up to that length
+				// minus one.
+				unsafe {
+					*ts_new.get_unchecked_mut(i) += *ts_old.get_unchecked(i);
+				}
+			}
+		}
+		result
+	}
+
+	pub fn cumsum(&mut self) {
+		for vec in self.time_series.iter_mut() {
+			let mut accum: i64 = 0;
+			for v in vec.iter_mut() {
+				accum += *v;
+				*v = accum;
+			}
+		}
+	}
+
+	pub fn clamped(mut self) -> TimeSeries<T, u64> {
+		// the most evil thing.
+		for vec in self.time_series.iter_mut() {
+			for v in vec.iter_mut() {
+				unsafe {
+					*v = std::mem::transmute::<u64, i64>(
+						if *v < 0 {
+							0u64
+						} else {
+							*v as u64
+						}
+					);
+				}
+			}
+		}
+		TimeSeries::<T, u64>{
+			start: self.start,
+			len: self.len,
+			keys: self.keys,
+			time_series: unsafe { std::mem::transmute::<Vec<Vec<i64>>, Vec<Vec<u64>>>(self.time_series) },
+		}
+	}
+}
+
 
 #[macro_export]
 macro_rules! joined_keyset_ref {
@@ -302,6 +437,19 @@ impl<T: TimeSeriesKey> CounterGroup<T> {
 	pub fn from_d1(d1: Counters<T>) -> Self {
 		let mut cum = d1.clone();
 		cum.cumsum();
+		let mut d7 = cum.clone();
+		d7.diff(7);
+		let mut d7s7 = d7.clone();
+		d7s7.shift_fwd(7);
+		Self{
+			cum,
+			d1,
+			d7,
+			d7s7,
+		}
+	}
+
+	pub fn from_d1_and_cum(d1: Counters<T>, cum: Counters<T>) -> Self {
 		let mut d7 = cum.clone();
 		d7.diff(7);
 		let mut d7s7 = d7.clone();
@@ -385,3 +533,4 @@ pub type Counters<T> = TimeSeries<T, u64>;
 pub type IGauge<T> = TimeSeries<T, u64>;
 pub type FGauge<T> = TimeSeries<T, f64>;
 pub type Submittable<T> = TimeSeries<T, f64>;
+pub type Diff<T> = TimeSeries<T, i64>;

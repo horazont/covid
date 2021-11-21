@@ -4,7 +4,7 @@ use std::fs::File;
 
 use chrono::NaiveDate;
 
-use covid::{DistrictId, MaybeAgeGroup, Sex, Counters, ReportFlag, InfectionRecord, global_start_date, naive_today, StepMeter, CountMeter, ProgressSink, DiffRecord};
+use covid::{DistrictId, MaybeAgeGroup, Sex, Counters, ReportFlag, InfectionRecord, global_start_date, naive_today, StepMeter, CountMeter, ProgressSink, DiffRecord, Diff};
 
 
 type PartialCaseKey = (DistrictId, MaybeAgeGroup, Sex);
@@ -12,12 +12,12 @@ type PartialCaseKey = (DistrictId, MaybeAgeGroup, Sex);
 const DELAY_CUTOFF: i64 = 28;
 
 struct PartialDiffData {
-	pub cases_by_pub: Counters<PartialCaseKey>,
+	pub cases_by_pub: Diff<PartialCaseKey>,
 	pub cases_delayed: Counters<PartialCaseKey>,
 	pub case_delay_total: Counters<PartialCaseKey>,
 	pub late_cases: Counters<PartialCaseKey>,
-	pub deaths_by_pub: Counters<PartialCaseKey>,
-	pub recovered_by_pub: Counters<PartialCaseKey>,
+	pub deaths_by_pub: Diff<PartialCaseKey>,
+	pub recovered_by_pub: Diff<PartialCaseKey>,
 }
 
 fn saturating_add_u64_i32(reg: &mut u64, v: i32) {
@@ -32,12 +32,12 @@ fn saturating_add_u64_i32(reg: &mut u64, v: i32) {
 impl PartialDiffData {
 	fn new(start: NaiveDate, end: NaiveDate) -> Self {
 		Self{
-			cases_by_pub: Counters::new(start, end),
+			cases_by_pub: Diff::new(start, end),
 			cases_delayed: Counters::new(start, end),
 			case_delay_total: Counters::new(start, end),
 			late_cases: Counters::new(start, end),
-			deaths_by_pub: Counters::new(start, end),
-			recovered_by_pub: Counters::new(start, end),
+			deaths_by_pub: Diff::new(start, end),
+			recovered_by_pub: Diff::new(start, end),
 		}
 	}
 
@@ -83,18 +83,19 @@ impl PartialDiffData {
 		};
 
 		let k = (rec.district_id, rec.age_group, rec.sex);
-		saturating_add_u64_i32(&mut self.cases_by_pub.get_or_create(k)[case_index], case_diff);
+		self.cases_by_pub.get_or_create(k)[case_index] += case_diff as i64;
 		saturating_add_u64_i32(&mut self.cases_delayed.get_or_create(k)[case_index], case_delay_count);
 		saturating_add_u64_i32(&mut self.case_delay_total.get_or_create(k)[case_index], case_delay * case_delay_count);
 		saturating_add_u64_i32(&mut self.late_cases.get_or_create(k)[case_index], late_case_count);
-		saturating_add_u64_i32(&mut self.deaths_by_pub.get_or_create(k)[death_index], death_diff);
-		saturating_add_u64_i32(&mut self.recovered_by_pub.get_or_create(k)[recovered_index], recovered_diff);
+		self.deaths_by_pub.get_or_create(k)[death_index] += death_diff as i64;
+		self.recovered_by_pub.get_or_create(k)[recovered_index] += recovered_diff as i64;
 	}
 
 	fn write_all<W: io::Write, S: ProgressSink + ?Sized>(&self, s: &mut S, w: &mut W) -> io::Result<()> {
 		let start = self.cases_by_pub.start();
 		let len = self.cases_by_pub.len();
 		let mut pm = StepMeter::new(s, len);
+		let mut w = csv::Writer::from_writer(w);
 		for i in 0..len {
 			let date = start + chrono::Duration::days(i as i64);
 			for k in self.cases_by_pub.keys() {
@@ -108,7 +109,7 @@ impl PartialDiffData {
 					continue
 				}
 				let (district_id, age_group, sex) = *k;
-				DiffRecord{
+				w.serialize(DiffRecord{
 					date,
 					district_id,
 					age_group,
@@ -119,7 +120,7 @@ impl PartialDiffData {
 					late_cases,
 					deaths,
 					recovered,
-				}.write(w)?;
+				})?;
 			}
 			if i % 30 == 29 {
 				pm.update(i+1);
@@ -142,6 +143,8 @@ fn load_existing<R: io::Read, S: ProgressSink + ?Sized>(s: &mut S, r: &mut R, d:
 		d.deaths_by_pub.get_or_create(k)[index] = rec.deaths;
 		d.recovered_by_pub.get_or_create(k)[index] = rec.recovered;
 		d.case_delay_total.get_or_create(k)[index] = rec.delay_total;
+		d.late_cases.get_or_create(k)[index] = rec.late_cases;
+		d.cases_delayed.get_or_create(k)[index] = rec.cases_delayed;
 		if i % 500000 == 499999 {
 			pm.update(i+1);
 		}
@@ -152,13 +155,13 @@ fn load_existing<R: io::Read, S: ProgressSink + ?Sized>(s: &mut S, r: &mut R, d:
 }
 
 fn try_load_existing<P: AsRef<Path>, S: ProgressSink + ?Sized>(s: &mut S, path: P, d: &mut PartialDiffData) -> io::Result<()> {
-	// not using magic open as a safeguard: the output will always be uncompressed and refusing compressed input protects against accidentally overwriting a source file
-	let mut r = match File::open(path) {
+	let r = match File::open(path) {
 		Ok(f) => f,
 		// ignore missing files here
 		Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(()),
 		Err(other) => return Err(other),
 	};
+	let mut r = flate2::read::GzDecoder::new(r);
 	load_existing(s, &mut r, d)
 }
 
@@ -180,9 +183,10 @@ fn merge_new<P: AsRef<Path>, S: ProgressSink + ?Sized>(s: &mut S, path: P, date:
 }
 
 fn writeback<P: AsRef<Path>, S: ProgressSink + ?Sized>(s: &mut S, path: P, d: &PartialDiffData) -> io::Result<()> {
-	let mut f = File::create(path)?;
-	DiffRecord::write_header(&mut f)?;
-	d.write_all(s, &mut f)?;
+	let f = File::create(path)?;
+	let mut w = flate2::write::GzEncoder::new(f, flate2::Compression::new(5));
+	d.write_all(s, &mut w)?;
+	w.finish()?;
 	Ok(())
 }
 
