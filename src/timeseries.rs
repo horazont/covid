@@ -455,6 +455,7 @@ impl<T: TimeSeriesKey> From<TimeSeries<T, u64>> for TimeSeries<T, f64> {
 }
 
 
+#[derive(Clone)]
 pub struct CounterGroup<T: TimeSeriesKey> {
 	cum: Counters<T>,
 	d1: Counters<T>,

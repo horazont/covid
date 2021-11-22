@@ -124,7 +124,7 @@ impl ParboiledCaseData {
 		self.recovered_by_pub.get_or_create(k)[ref_index] += rec.recovered;
 	}
 
-	fn remapped<F: Fn(&FullCaseKey) -> Option<FullCaseKey>>(&self, f: F) -> ParboiledCaseData {
+	fn remapped<F: Fn(&FullCaseKey) -> Option<FullCaseKey>>(self, f: F) -> ParboiledCaseData {
 		ParboiledCaseData{
 			cases_by_pub: self.cases_by_pub.rekeyed(&f),
 			case_delay_total: self.case_delay_total.rekeyed(&f),
@@ -137,6 +137,7 @@ impl ParboiledCaseData {
 }
 
 
+#[derive(Clone)]
 struct CookedCaseData<T: TimeSeriesKey> {
 	pub cases_by_pub: CounterGroup<T>,
 	pub case_delay_total: Counters<T>,
@@ -719,14 +720,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 		Some((*state_id, district_id.map(remap_berlin), *ag))
 	});
 
-	let mut hosp = RawHospitalizationData::new(start, end);
-	println!("loading hospitalization data ...");
-	load_hosp_data(&mut *covid::default_output(), hospfile, &mut hosp)?;
-
 	println!("crunching ...");
 	let cases = CookedCaseData::cook(cases, diff_cases);
 	let vacc = CookedVaccinationData::cook(vacc);
-	let hosp = CookedHospitalizationData::cook(hosp);
 
 	let client = covid::env_client();
 
@@ -830,23 +826,83 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 		)?;
 	}
 
+	println!("dropping now unneeded data ...");
+	let new_vacc = vacc.rekeyed(|(state_id, district_id, _)| {
+		// drop vaccinations without properly defined state + district
+		match (state_id, district_id) {
+			(Some(state_id), Some(_)) => Some(*state_id),
+			_ => None,
+		}
+	});
+	drop(vacc);
+	let vacc = new_vacc;
+
+	let new_cases = cases.rekeyed(|(state_id, _, ag, s)| {
+		Some((*state_id, *ag, *s))
+	});
+	drop(cases);
+	let cases = new_cases;
+
+	{
+		println!("preparing {} ...", DEMO_MEASUREMENT_NAME);
+
+		let cases: SubmittableCaseData<_> = cases.clone().into();
+		let mut keys = covid::joined_keyset_ref!(
+			_,
+			&cases.cases_by_report.cum,
+			&cases.cases_by_ref.cum,
+			&cases.cases_by_pub.cum,
+			&cases.deaths.cum,
+			&cases.deaths_by_pub.cum,
+			&cases.recovered.cum
+		);
+		let keys: Vec<_> = keys.drain().map(|k| {
+			let state_id = k.0;
+			let state_name = &states.get(&state_id).unwrap().name;
+			let tagv: Vec<SmartString> = vec![
+				state_name.into(),
+				k.1.to_string().into(),
+				k.2.to_string().into(),
+			];
+			(k, tagv)
+		}).collect();
+
+		println!("streaming {} ...", DEMO_MEASUREMENT_NAME);
+
+		stream_data(
+			&client,
+			DEMO_MEASUREMENT_NAME,
+			vec![
+				"state".into(),
+				"age".into(),
+				"sex".into(),
+			],
+			&keys,
+			&cases,
+			&[],
+			&[],
+		)?;
+	}
+
+	println!("dropping now unneeded data ...");
+	let new_cases = cases.rekeyed(|(state_id, _, _)| {
+		Some(*state_id)
+	});
+	drop(cases);
+	let cases = new_cases;
+
+	let mut hosp = RawHospitalizationData::new(start, end);
+	println!("loading hospitalization data ...");
+	load_hosp_data(&mut *covid::default_output(), hospfile, &mut hosp)?;
+	let hosp = CookedHospitalizationData::cook(hosp);
+
 	{
 		println!("preparing {} ...", GEO_LIGHT_MEASUREMENT_NAME);
 
-		let cases = cases.rekeyed(|(state_id, _, _, _)| {
-			Some(*state_id)
-		});
 		// XXX: This is dangerous and needs to be accounted for in the dashboar **carefully**, otherwise we accidentally double the numbers of berlin...
 		/* let berlin = covid::find_berlin_districts(&districts);
 		data.synthesize(&berlin[..], &(11, 11000)); */
 		let cases: SubmittableCaseData<_> = cases.into();
-		let vacc = vacc.rekeyed(|(state_id, district_id, _)| {
-			// drop vaccinations without properly defined state + district
-			match (state_id, district_id) {
-				(Some(state_id), Some(_)) => Some(*state_id),
-				_ => None,
-			}
-		});
 		let vacc: SubmittableVaccinationData<_> = vacc.into();
 		let icu_load: SubmittableICULoadData<_> = icu_load.rekeyed(|(state_id, _)| {
 			Some(*state_id)
@@ -937,51 +993,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 				&hosp.cases.d7,
 				&hosp.cases.d7s7,
 			],
-		)?;
-	}
-
-	{
-		println!("preparing {} ...", DEMO_MEASUREMENT_NAME);
-
-		let new_cases: SubmittableCaseData<_> = cases.rekeyed(|(state_id, _, ag, s)| {
-			Some((*state_id, *ag, *s))
-		}).into();
-		drop(cases);
-		let cases = new_cases;
-		let mut keys = covid::joined_keyset_ref!(
-			_,
-			&cases.cases_by_report.cum,
-			&cases.cases_by_ref.cum,
-			&cases.cases_by_pub.cum,
-			&cases.deaths.cum,
-			&cases.deaths_by_pub.cum,
-			&cases.recovered.cum
-		);
-		let keys: Vec<_> = keys.drain().map(|k| {
-			let state_id = k.0;
-			let state_name = &states.get(&state_id).unwrap().name;
-			let tagv: Vec<SmartString> = vec![
-				state_name.into(),
-				k.1.to_string().into(),
-				k.2.to_string().into(),
-			];
-			(k, tagv)
-		}).collect();
-
-		println!("streaming {} ...", DEMO_MEASUREMENT_NAME);
-
-		stream_data(
-			&client,
-			DEMO_MEASUREMENT_NAME,
-			vec![
-				"state".into(),
-				"age".into(),
-				"sex".into(),
-			],
-			&keys,
-			&cases,
-			&[],
-			&[],
 		)?;
 	}
 
