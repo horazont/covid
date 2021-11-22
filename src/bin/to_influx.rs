@@ -10,7 +10,7 @@ use chrono::NaiveDate;
 use csv;
 
 use covid;
-use covid::{StateId, DistrictId, DistrictInfo, InfectionRecord, Counters, FullCaseKey, CountMeter, global_start_date, naive_today, DiffRecord, CounterGroup, SubmittableCounterGroup, Submittable, GeoCaseKey, ProgressSink, ICULoadRecord, VaccinationKey, VaccinationRecord, VaccinationLevel, HospitalizationRecord, AgeGroup, TimeSeriesKey, Diff};
+use covid::{StateId, DistrictId, DistrictInfo, InfectionRecord, Counters, FullCaseKey, CountMeter, global_start_date, naive_today, DiffRecord, CounterGroup, SubmittableCounterGroup, Submittable, GeoCaseKey, ProgressSink, ICULoadRecord, VaccinationKey, VaccinationRecord, VaccinationLevel, HospitalizationRecord, AgeGroup, TimeSeriesKey};
 
 
 static GEO_MEASUREMENT_NAME: &'static str = "data_v2_geo";
@@ -146,14 +146,6 @@ struct CookedCaseData<T: TimeSeriesKey> {
 	pub deaths_by_pub: CounterGroup<T>,
 	pub recovered: CounterGroup<T>,
 	pub recovered_by_pub: CounterGroup<T>,
-}
-
-fn postprocess_cum<T: TimeSeriesKey>(mut cum_base: Counters<T>, d1: Diff<T>) -> Counters<T> {
-	let mut cum_add = d1;
-	cum_add.cumsum();
-	cum_base.rfill_zeroes();
-	cum_base.checked_add_signed(&cum_add);
-	cum_base
 }
 
 impl CookedCaseData<FullCaseKey> {
