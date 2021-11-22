@@ -402,9 +402,9 @@ pub struct DiffRecord {
 	pub delay_total: u64,
 	pub cases_delayed: u64,
 	pub late_cases: u64,
-	pub cases: i64,
-	pub deaths: i64,
-	pub recovered: i64,
+	pub cases: u64,
+	pub deaths: u64,
+	pub recovered: u64,
 }
 
 

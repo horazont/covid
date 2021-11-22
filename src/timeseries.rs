@@ -194,11 +194,18 @@ impl<T: TimeSeriesKey> TimeSeries<T, u64> {
 	}
 
 	pub fn diff(&mut self, offset: usize) {
-		for vec in self.time_series.iter_mut() {
+		for (vec_index, vec) in self.time_series.iter_mut().enumerate() {
 			for i in offset..vec.len() {
 				let r = vec[i];
 				let i_l = i - offset;
-				vec[i_l] = r.checked_sub(vec[i_l]).expect("diff needs cumsum as input");
+				vec[i_l] = match r.checked_sub(vec[i_l]) {
+					Some(v) => v,
+					None => {
+						let vl = vec[i_l];
+						drop(vec);
+						panic!("diff operation on non-cumulative input: prev={}, curr={} at index {} ({:?}) with window size {} in key {:?}", vl, r, i, self.index_date(i as i64), offset, self.reverse_index(vec_index))
+					}
+				};
 			}
 			vec.rotate_right(offset);
 			vec[..offset].fill(0);
@@ -267,6 +274,17 @@ impl<T: TimeSeriesKey> TimeSeries<T, u64> {
 				None => panic!("sub_at decreases below zero with diff {} on value {} at index {} in key {:?}", remote[at_remote], local[at_local], at_local, k)
 			};
 		}
+	}
+
+	pub fn find_ge(&self, k: &T, start_at: usize, value: u64) -> Option<usize> {
+		let vec = self.get(k)?;
+		for i in start_at..vec.len() {
+			let v = vec[i];
+			if v >= value {
+				return Some(i)
+			}
+		}
+		None
 	}
 
 	pub fn unrolled(&self, window_size: usize) -> Self {
@@ -363,6 +381,17 @@ impl<T: TimeSeriesKey> TimeSeries<T, i64> {
 				*v = accum;
 			}
 		}
+	}
+
+	pub fn find_ge(&self, k: &T, start_at: usize, value: i64) -> Option<usize> {
+		let vec = self.get(k)?;
+		for i in start_at..vec.len() {
+			let v = vec[i];
+			if v >= value {
+				return Some(i)
+			}
+		}
+		None
 	}
 
 	pub fn clamped(mut self) -> TimeSeries<T, u64> {
