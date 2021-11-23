@@ -322,14 +322,19 @@ impl RawVaccinationData {
 struct CookedVaccinationData<T: TimeSeriesKey> {
 	pub first_vacc: CounterGroup<T>,
 	pub basic_vacc: CounterGroup<T>,
+	pub basic_vacc_d180: Counters<T>,
 	pub full_vacc: CounterGroup<T>,
 }
 
 impl CookedVaccinationData<VaccinationKey> {
 	fn cook(raw: RawVaccinationData) -> Self {
+		let basic_vacc = CounterGroup::from_d1(raw.basic_vacc);
+		let mut basic_vacc_d180 = basic_vacc.cum().clone();
+		basic_vacc_d180.diff(180);
 		Self{
 			first_vacc: CounterGroup::from_d1(raw.first_vacc),
-			basic_vacc: CounterGroup::from_d1(raw.basic_vacc),
+			basic_vacc,
+			basic_vacc_d180,
 			full_vacc: CounterGroup::from_d1(raw.full_vacc),
 		}
 	}
@@ -340,6 +345,7 @@ impl<T: TimeSeriesKey> CookedVaccinationData<T> {
 		CookedVaccinationData::<U>{
 			first_vacc: self.first_vacc.rekeyed(&f),
 			basic_vacc: self.basic_vacc.rekeyed(&f),
+			basic_vacc_d180: self.basic_vacc_d180.rekeyed(&f),
 			full_vacc: self.full_vacc.rekeyed(&f),
 		}
 	}
@@ -349,6 +355,7 @@ impl<T: TimeSeriesKey> CookedVaccinationData<T> {
 	pub fn synthesize<U: TimeSeriesKey>(&mut self, kin: &[&T], kout: T) {
 		self.first_vacc.synthesize(kin, kout.clone());
 		self.basic_vacc.synthesize(kin, kout.clone());
+		self.basic_vacc_d180.synthesize(kin, kout.clone());
 		self.full_vacc.synthesize(kin, kout.clone());
 	}
 }
@@ -357,6 +364,7 @@ impl<T: TimeSeriesKey> CookedVaccinationData<T> {
 struct SubmittableVaccinationData<T: TimeSeriesKey> {
 	pub first_vacc: SubmittableCounterGroup<T>,
 	pub basic_vacc: SubmittableCounterGroup<T>,
+	pub basic_vacc_d180: Submittable<T>,
 	pub full_vacc: SubmittableCounterGroup<T>,
 }
 
@@ -365,6 +373,7 @@ impl<T: TimeSeriesKey> From<CookedVaccinationData<T>> for SubmittableVaccination
 		Self{
 			first_vacc: other.first_vacc.into(),
 			basic_vacc: other.basic_vacc.into(),
+			basic_vacc_d180: other.basic_vacc_d180.into(),
 			full_vacc: other.full_vacc.into(),
 		}
 	}
@@ -801,6 +810,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 				"vacc_basic_d1".into(),
 				"vacc_basic_d7".into(),
 				"vacc_basic_d7s7".into(),
+				"vacc_basic_d180".into(),
 				"vacc_full_cum".into(),
 				"vacc_full_d1".into(),
 				"vacc_full_d7".into(),
@@ -820,6 +830,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 				&vacc.basic_vacc.d1,
 				&vacc.basic_vacc.d7,
 				&vacc.basic_vacc.d7s7,
+				&vacc.basic_vacc_d180,
 				&vacc.full_vacc.cum,
 				&vacc.full_vacc.d1,
 				&vacc.full_vacc.d7,
@@ -903,6 +914,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 				"vacc_basic_d1".into(),
 				"vacc_basic_d7".into(),
 				"vacc_basic_d7s7".into(),
+				"vacc_basic_d180".into(),
 				"vacc_full_cum".into(),
 				"vacc_full_d1".into(),
 				"vacc_full_d7".into(),
@@ -926,6 +938,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 				&vacc.basic_vacc.d1,
 				&vacc.basic_vacc.d7,
 				&vacc.basic_vacc.d7s7,
+				&vacc.basic_vacc_d180,
 				&vacc.full_vacc.cum,
 				&vacc.full_vacc.d1,
 				&vacc.full_vacc.d7,
