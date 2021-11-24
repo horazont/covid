@@ -10,7 +10,7 @@ use chrono::NaiveDate;
 use csv;
 
 use covid;
-use covid::{StateId, DistrictId, DistrictInfo, InfectionRecord, Counters, FullCaseKey, CountMeter, global_start_date, naive_today, DiffRecord, CounterGroup, SubmittableCounterGroup, Submittable, GeoCaseKey, ProgressSink, ICULoadRecord, VaccinationKey, VaccinationRecord, VaccinationLevel, HospitalizationRecord, AgeGroup, TimeSeriesKey};
+use covid::{StateId, DistrictId, DistrictInfo, InfectionRecord, Counters, FullCaseKey, CountMeter, global_start_date, naive_today, DiffRecord, CounterGroup, SubmittableCounterGroup, Submittable, GeoCaseKey, ProgressSink, ICULoadRecord, VaccinationKey, VaccinationRecord, VaccinationLevel, HospitalizationRecord, AgeGroup, TimeSeriesKey, ViewTimeSeries, Diff};
 
 
 static GEO_MEASUREMENT_NAME: &'static str = "data_v2_geo";
@@ -457,7 +457,7 @@ fn stream_data<K: TimeSeriesKey>(
 		keyset: &[(&K, Vec<SmartString>)],
 		data: &SubmittableCaseData<K>,
 		extra_fields: &[SmartString],
-		extra_vecs: &[&Submittable<K>],
+		extra_vecs: &[&dyn ViewTimeSeries<K>],
 		) -> Result<(), covid::influxdb::Error>
 {
 	let mut fields = vec![
@@ -493,35 +493,35 @@ fn stream_data<K: TimeSeriesKey>(
 	];
 
 	let mut vecs = vec![
-		&data.cases_by_report.cum,
-		&data.cases_by_report.d1,
-		&data.cases_by_report.d7,
-		&data.cases_by_report.d7s7,
-		&data.cases_by_ref.cum,
-		&data.cases_by_ref.d1,
-		&data.cases_by_ref.d7,
-		&data.cases_by_ref.d7s7,
-		&data.cases_by_pub.cum,
-		&data.cases_by_pub.d1,
-		&data.cases_by_pub.d7,
-		&data.cases_by_pub.d7s7,
-		&data.case_delay_total,
-		&data.deaths.cum,
-		&data.deaths.d1,
-		&data.deaths.d7,
-		&data.deaths.d7s7,
-		&data.deaths_by_pub.cum,
-		&data.deaths_by_pub.d1,
-		&data.deaths_by_pub.d7,
-		&data.deaths_by_pub.d7s7,
-		&data.recovered.cum,
-		&data.recovered.d1,
-		&data.recovered.d7,
-		&data.recovered.d7s7,
-		&data.recovered_by_pub.cum,
-		&data.recovered_by_pub.d1,
-		&data.recovered_by_pub.d7,
-		&data.recovered_by_pub.d7s7,
+		&data.cases_by_report.cum as &dyn ViewTimeSeries<_>,
+		&Diff::padded(&data.cases_by_report.cum, 1, 0.) as &dyn ViewTimeSeries<_>,
+		&data.cases_by_report.d7 as &dyn ViewTimeSeries<_>,
+		&data.cases_by_report.d7s7 as &dyn ViewTimeSeries<_>,
+		&data.cases_by_ref.cum as &dyn ViewTimeSeries<_>,
+		&data.cases_by_ref.d1 as &dyn ViewTimeSeries<_>,
+		&data.cases_by_ref.d7 as &dyn ViewTimeSeries<_>,
+		&data.cases_by_ref.d7s7 as &dyn ViewTimeSeries<_>,
+		&data.cases_by_pub.cum as &dyn ViewTimeSeries<_>,
+		&data.cases_by_pub.d1 as &dyn ViewTimeSeries<_>,
+		&data.cases_by_pub.d7 as &dyn ViewTimeSeries<_>,
+		&data.cases_by_pub.d7s7 as &dyn ViewTimeSeries<_>,
+		&data.case_delay_total as &dyn ViewTimeSeries<_>,
+		&data.deaths.cum as &dyn ViewTimeSeries<_>,
+		&data.deaths.d1 as &dyn ViewTimeSeries<_>,
+		&data.deaths.d7 as &dyn ViewTimeSeries<_>,
+		&data.deaths.d7s7 as &dyn ViewTimeSeries<_>,
+		&data.deaths_by_pub.cum as &dyn ViewTimeSeries<_>,
+		&data.deaths_by_pub.d1 as &dyn ViewTimeSeries<_>,
+		&data.deaths_by_pub.d7 as &dyn ViewTimeSeries<_>,
+		&data.deaths_by_pub.d7s7 as &dyn ViewTimeSeries<_>,
+		&data.recovered.cum as &dyn ViewTimeSeries<_>,
+		&data.recovered.d1 as &dyn ViewTimeSeries<_>,
+		&data.recovered.d7 as &dyn ViewTimeSeries<_>,
+		&data.recovered.d7s7 as &dyn ViewTimeSeries<_>,
+		&data.recovered_by_pub.cum as &dyn ViewTimeSeries<_>,
+		&data.recovered_by_pub.d1 as &dyn ViewTimeSeries<_>,
+		&data.recovered_by_pub.d7 as &dyn ViewTimeSeries<_>,
+		&data.recovered_by_pub.d7s7 as &dyn ViewTimeSeries<_>,
 	];
 	fields.extend_from_slice(extra_fields);
 	vecs.extend_from_slice(extra_vecs);
@@ -533,6 +533,8 @@ fn stream_data<K: TimeSeriesKey>(
 		tags,
 		fields,
 		keyset,
+		data.cases_by_report.cum.start(),
+		data.cases_by_report.cum.len(),
 		&vecs[..],
 	)
 }
