@@ -27,6 +27,91 @@ pub fn global_start_date() -> NaiveDate {
 }
 
 
+pub trait ViewTimeSeries<T: TimeSeriesKey> {
+	fn getf(&self, k: &T, at: NaiveDate) -> Option<f64>;
+}
+
+
+impl<T: TimeSeriesKey> ViewTimeSeries<T> for TimeSeries<T, u64> {
+	fn getf(&self, k: &T, at: NaiveDate) -> Option<f64> {
+		let i = self.date_index(at)?;
+		Some(self.get_value(k, i).unwrap_or(0) as f64)
+	}
+}
+
+
+impl<T: TimeSeriesKey> ViewTimeSeries<T> for TimeSeries<T, i64> {
+	fn getf(&self, k: &T, at: NaiveDate) -> Option<f64> {
+		let i = self.date_index(at)?;
+		Some(self.get_value(k, i).unwrap_or(0) as f64)
+	}
+}
+
+
+impl<T: TimeSeriesKey> ViewTimeSeries<T> for TimeSeries<T, f64> {
+	fn getf(&self, k: &T, at: NaiveDate) -> Option<f64> {
+		let i = self.date_index(at)?;
+		Some(self.get_value(k, i).unwrap_or(0.))
+	}
+}
+
+pub struct TimeMap<I> {
+	inner: I,
+	by: i64,
+	range: Option<(NaiveDate, NaiveDate)>,
+	pad: Option<f64>,
+}
+
+impl<I> TimeMap<I> {
+	pub fn shift(inner: I, by: i64) -> Self {
+		Self{
+			inner,
+			by,
+			range: None,
+			pad: None,
+		}
+	}
+}
+
+impl<K: TimeSeriesKey, I: ViewTimeSeries<K>> ViewTimeSeries<K> for TimeMap<I> {
+	fn getf(&self, k: &K, at: NaiveDate) -> Option<f64> {
+		match self.range {
+			Some((start, end)) => if (at < start) || (at >= end) {
+				return None
+			},
+			None => (),
+		};
+		let at = at + chrono::Duration::days(self.by);
+		self.inner.getf(k, at).or(self.pad)
+	}
+}
+
+pub struct Diff<I> {
+	inner: I,
+	window: u32,
+	pad: Option<f64>,
+}
+
+impl<I> Diff<I> {
+	pub fn padded(inner: I, window: u32, pad: f64) -> Self {
+		Self{inner, window, pad: Some(pad)}
+	}
+}
+
+impl<K: TimeSeriesKey, I: ViewTimeSeries<K>> ViewTimeSeries<K> for Diff<I> {
+	fn getf(&self, k: &K, at: NaiveDate) -> Option<f64> {
+		let vr = self.inner.getf(k, at)?;
+		let vl = self.inner.getf(k, at - chrono::Duration::days(self.window as i64)).or(self.pad)?;
+		Some(vr - vl)
+	}
+}
+
+impl<K: TimeSeriesKey, T: ViewTimeSeries<K>> ViewTimeSeries<K> for &T {
+	fn getf(&self, k: &K, at: NaiveDate) -> Option<f64> {
+		(**self).getf(k, at)
+	}
+}
+
 pub fn stream<'a, K: TimeSeriesKey, S: ProgressSink + ?Sized>(
 		sink: &influxdb::Client,
 		progress: &'a mut S,
@@ -34,7 +119,9 @@ pub fn stream<'a, K: TimeSeriesKey, S: ProgressSink + ?Sized>(
 		tags: Vec<SmartString>,
 		fields: Vec<SmartString>,
 		keyset: &[(&K, Vec<SmartString>)],
-		vecs: &[&Submittable<K>],
+		start: NaiveDate,
+		ndays: usize,
+		vecs: &[&dyn ViewTimeSeries<K>],
 ) -> Result<(), influxdb::Error> {
 	#[cfg(debug_assertions)]
 	{
@@ -53,15 +140,12 @@ pub fn stream<'a, K: TimeSeriesKey, S: ProgressSink + ?Sized>(
 		samples: Vec::new(),
 	};
 
-	let ref_vec = &vecs[0];
-	let n = ref_vec.len();
-	let mut pm = StepMeter::new(progress, n);
-	for i in 0..n {
-		let nds = ref_vec.index_date(i as i64).unwrap();
-		readout.ts = Utc.ymd(nds.year(), nds.month(), nds.day()).and_hms(0, 0, 0);
+	let mut pm = StepMeter::new(progress, ndays);
+	for (i, date) in start.iter_days().take(ndays).enumerate() {
+		readout.ts = Utc.ymd(date.year(), date.month(), date.day()).and_hms(0, 0, 0);
 		// we can assume that any death and recovered has a case before that, which means that we can safely use the keyset of cases_rep_d1.
 		for (k_index, (k, tagv)) in keyset.iter().enumerate() {
-			let fieldv: Vec<_> = vecs.iter().map(|v| { v.get_value(&k, i).unwrap_or(0.0)}).collect();
+			let fieldv: Vec<_> = vecs.iter().map(|v| { v.getf(&k, date).unwrap_or(0.) }).collect();
 			if k_index >= readout.samples.len() {
 				readout.samples.push(influxdb::Sample{
 					tagv: tagv.clone(),

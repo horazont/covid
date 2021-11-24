@@ -292,10 +292,10 @@ impl<T: TimeSeriesKey> From<TimeSeries<T, u64>> for TimeSeries<T, f64> {
 
 
 pub struct CounterGroup<T: TimeSeriesKey> {
-	cum: Counters<T>,
-	d1: Counters<T>,
-	d7: Counters<T>,
-	d7s7: Counters<T>,
+	pub cum: Counters<T>,
+	pub d1: Counters<T>,
+	pub d7: Counters<T>,
+	pub d7s7: Counters<T>,
 }
 
 impl<T: TimeSeriesKey> CounterGroup<T> {

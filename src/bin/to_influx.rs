@@ -10,7 +10,7 @@ use chrono::NaiveDate;
 use csv;
 
 use covid;
-use covid::{StateId, DistrictId, DistrictInfo, InfectionRecord, Counters, FullCaseKey, CountMeter, global_start_date, naive_today, DiffRecord, CounterGroup, SubmittableCounterGroup, Submittable, GeoCaseKey, ProgressSink, ICULoadRecord, VaccinationKey, VaccinationRecord, VaccinationLevel, HospitalizationRecord, AgeGroup, TimeSeriesKey};
+use covid::{StateId, DistrictId, DistrictInfo, InfectionRecord, Counters, FullCaseKey, CountMeter, global_start_date, naive_today, DiffRecord, CounterGroup, SubmittableCounterGroup, Submittable, GeoCaseKey, ProgressSink, ICULoadRecord, VaccinationKey, VaccinationRecord, VaccinationLevel, HospitalizationRecord, AgeGroup, TimeSeriesKey, ViewTimeSeries, Diff, TimeMap};
 
 
 static GEO_MEASUREMENT_NAME: &'static str = "data_v2_geo";
@@ -455,9 +455,9 @@ fn stream_data<K: TimeSeriesKey>(
 		measurement: &str,
 		tags: Vec<SmartString>,
 		keyset: &[(&K, Vec<SmartString>)],
-		data: &SubmittableCaseData<K>,
+		data: &CookedCaseData<K>,
 		extra_fields: &[SmartString],
-		extra_vecs: &[&Submittable<K>],
+		extra_vecs: &[&dyn ViewTimeSeries<K>],
 		) -> Result<(), covid::influxdb::Error>
 {
 	let mut fields = vec![
@@ -492,36 +492,57 @@ fn stream_data<K: TimeSeriesKey>(
 		"recovered_pub_d7s7".into(),
 	];
 
+	let cases_by_report_d1 = Diff::padded(&data.cases_by_report.cum, 1, 0.);
+	let cases_by_report_d7 = Diff::padded(&data.cases_by_report.cum, 7, 0.);
+	let cases_by_report_d7s7 = TimeMap::shift(&cases_by_report_d7, 7);
+	let cases_by_ref_d1 = Diff::padded(&data.cases_by_ref.cum, 1, 0.);
+	let cases_by_ref_d7 = Diff::padded(&data.cases_by_ref.cum, 7, 0.);
+	let cases_by_ref_d7s7 = TimeMap::shift(&cases_by_ref_d7, 7);
+	let cases_by_pub_d1 = Diff::padded(&data.cases_by_pub.cum, 1, 0.);
+	let cases_by_pub_d7 = Diff::padded(&data.cases_by_pub.cum, 7, 0.);
+	let cases_by_pub_d7s7 = TimeMap::shift(&cases_by_pub_d7, 7);
+	let deaths_by_ref_d1 = Diff::padded(&data.deaths.cum, 1, 0.);
+	let deaths_by_ref_d7 = Diff::padded(&data.deaths.cum, 7, 0.);
+	let deaths_by_ref_d7s7 = TimeMap::shift(&deaths_by_ref_d7, 7);
+	let deaths_by_pub_d1 = Diff::padded(&data.deaths_by_pub.cum, 1, 0.);
+	let deaths_by_pub_d7 = Diff::padded(&data.deaths_by_pub.cum, 7, 0.);
+	let deaths_by_pub_d7s7 = TimeMap::shift(&deaths_by_pub_d7, 7);
+	let recovered_by_ref_d1 = Diff::padded(&data.recovered.cum, 1, 0.);
+	let recovered_by_ref_d7 = Diff::padded(&data.recovered.cum, 7, 0.);
+	let recovered_by_ref_d7s7 = TimeMap::shift(&recovered_by_ref_d7, 7);
+	let recovered_by_pub_d1 = Diff::padded(&data.recovered_by_pub.cum, 1, 0.);
+	let recovered_by_pub_d7 = Diff::padded(&data.recovered_by_pub.cum, 7, 0.);
+	let recovered_by_pub_d7s7 = TimeMap::shift(&recovered_by_pub_d7, 7);
 	let mut vecs = vec![
-		&data.cases_by_report.cum,
-		&data.cases_by_report.d1,
-		&data.cases_by_report.d7,
-		&data.cases_by_report.d7s7,
-		&data.cases_by_ref.cum,
-		&data.cases_by_ref.d1,
-		&data.cases_by_ref.d7,
-		&data.cases_by_ref.d7s7,
-		&data.cases_by_pub.cum,
-		&data.cases_by_pub.d1,
-		&data.cases_by_pub.d7,
-		&data.cases_by_pub.d7s7,
-		&data.case_delay_total,
-		&data.deaths.cum,
-		&data.deaths.d1,
-		&data.deaths.d7,
-		&data.deaths.d7s7,
-		&data.deaths_by_pub.cum,
-		&data.deaths_by_pub.d1,
-		&data.deaths_by_pub.d7,
-		&data.deaths_by_pub.d7s7,
-		&data.recovered.cum,
-		&data.recovered.d1,
-		&data.recovered.d7,
-		&data.recovered.d7s7,
-		&data.recovered_by_pub.cum,
-		&data.recovered_by_pub.d1,
-		&data.recovered_by_pub.d7,
-		&data.recovered_by_pub.d7s7,
+		&data.cases_by_report.cum as &dyn ViewTimeSeries<_>,
+		&cases_by_report_d1 as &dyn ViewTimeSeries<_>,
+		&cases_by_report_d7 as &dyn ViewTimeSeries<_>,
+		&cases_by_report_d7s7 as &dyn ViewTimeSeries<_>,
+		&data.cases_by_ref.cum as &dyn ViewTimeSeries<_>,
+		&cases_by_ref_d1 as &dyn ViewTimeSeries<_>,
+		&cases_by_ref_d7 as &dyn ViewTimeSeries<_>,
+		&cases_by_ref_d7s7 as &dyn ViewTimeSeries<_>,
+		&data.cases_by_pub.cum as &dyn ViewTimeSeries<_>,
+		&cases_by_pub_d1 as &dyn ViewTimeSeries<_>,
+		&cases_by_pub_d7 as &dyn ViewTimeSeries<_>,
+		&cases_by_pub_d7s7 as &dyn ViewTimeSeries<_>,
+		&data.case_delay_total as &dyn ViewTimeSeries<_>,
+		&data.deaths.cum as &dyn ViewTimeSeries<_>,
+		&deaths_by_ref_d1 as &dyn ViewTimeSeries<_>,
+		&deaths_by_ref_d7 as &dyn ViewTimeSeries<_>,
+		&deaths_by_ref_d7s7 as &dyn ViewTimeSeries<_>,
+		&data.deaths_by_pub.cum as &dyn ViewTimeSeries<_>,
+		&deaths_by_pub_d1 as &dyn ViewTimeSeries<_>,
+		&deaths_by_pub_d7 as &dyn ViewTimeSeries<_>,
+		&deaths_by_pub_d7s7 as &dyn ViewTimeSeries<_>,
+		&data.recovered.cum as &dyn ViewTimeSeries<_>,
+		&recovered_by_ref_d1 as &dyn ViewTimeSeries<_>,
+		&recovered_by_ref_d7 as &dyn ViewTimeSeries<_>,
+		&recovered_by_ref_d7s7 as &dyn ViewTimeSeries<_>,
+		&data.recovered_by_pub.cum as &dyn ViewTimeSeries<_>,
+		&recovered_by_pub_d1 as &dyn ViewTimeSeries<_>,
+		&recovered_by_pub_d7 as &dyn ViewTimeSeries<_>,
+		&recovered_by_pub_d7s7 as &dyn ViewTimeSeries<_>,
 	];
 	fields.extend_from_slice(extra_fields);
 	vecs.extend_from_slice(extra_vecs);
@@ -533,6 +554,8 @@ fn stream_data<K: TimeSeriesKey>(
 		tags,
 		fields,
 		keyset,
+		data.cases_by_report.cum.start(),
+		data.cases_by_report.cum.len(),
 		&vecs[..],
 	)
 }
@@ -746,7 +769,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 		// XXX: This is dangerous and needs to be accounted for in the dashboar **carefully**, otherwise we accidentally double the numbers of berlin...
 		/* let berlin = covid::find_berlin_districts(&districts);
 		data.synthesize(&berlin[..], &(11, 11000)); */
-		let cases: SubmittableCaseData<_> = cases.into();
 		let vacc = vacc.rekeyed(|(state_id, district_id, _)| {
 			// drop vaccinations without properly defined state + district
 			match (state_id, district_id) {
@@ -848,7 +870,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 		// XXX: This is dangerous and needs to be accounted for in the dashboar **carefully**, otherwise we accidentally double the numbers of berlin...
 		/* let berlin = covid::find_berlin_districts(&districts);
 		data.synthesize(&berlin[..], &(11, 11000)); */
-		let cases: SubmittableCaseData<_> = cases.into();
 		let vacc = vacc.rekeyed(|(state_id, district_id, _)| {
 			// drop vaccinations without properly defined state + district
 			match (state_id, district_id) {
@@ -954,9 +975,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 	{
 		println!("preparing {} ...", DEMO_MEASUREMENT_NAME);
 
-		let new_cases: SubmittableCaseData<_> = cases.rekeyed(|(state_id, _, ag, s)| {
+		let new_cases = cases.rekeyed(|(state_id, _, ag, s)| {
 			Some((*state_id, *ag, *s))
-		}).into();
+		});
 		drop(cases);
 		let cases = new_cases;
 		let mut keys = covid::joined_keyset_ref!(
