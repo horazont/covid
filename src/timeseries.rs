@@ -59,6 +59,11 @@ impl<T: Hash + Eq, V: Copy> TimeSeries<T, V> {
 	pub fn len(&self) -> usize {
 		self.len
 	}
+
+	#[inline(always)]
+	pub fn end(&self) -> NaiveDate {
+		self.start + chrono::Duration::days(self.len as i64)
+	}
 }
 
 impl<T: TimeSeriesKey, V: Copy + Zero> TimeSeries<T, V> {
@@ -287,7 +292,8 @@ impl<T: TimeSeriesKey> ViewTimeSeries<T> for TimeSeries<T, f64> {
 pub struct TimeMap<I> {
 	inner: I,
 	by: i64,
-	range: Option<(NaiveDate, NaiveDate)>,
+	start: Option<NaiveDate>,
+	end: Option<NaiveDate>,
 	pad: Option<f64>,
 }
 
@@ -296,7 +302,18 @@ impl<I> TimeMap<I> {
 		Self{
 			inner,
 			by,
-			range: None,
+			start: None,
+			end: None,
+			pad: None,
+		}
+	}
+
+	pub fn clamp(inner: I, start: Option<NaiveDate>, end: Option<NaiveDate>) -> Self {
+		Self{
+			inner,
+			by: 0,
+			start,
+			end,
 			pad: None,
 		}
 	}
@@ -304,12 +321,16 @@ impl<I> TimeMap<I> {
 
 impl<K: TimeSeriesKey, I: ViewTimeSeries<K>> ViewTimeSeries<K> for TimeMap<I> {
 	fn getf(&self, k: &K, at: NaiveDate) -> Option<f64> {
-		match self.range {
-			Some((start, end)) => if (at < start) || (at >= end) {
+		if let Some(start) = self.start {
+			if at < start {
 				return None
-			},
-			None => (),
-		};
+			}
+		}
+		if let Some(end) = self.end {
+			if at >= end {
+				return None
+			}
+		}
 		let at = at + chrono::Duration::days(self.by);
 		self.inner.getf(k, at).or(self.pad)
 	}
