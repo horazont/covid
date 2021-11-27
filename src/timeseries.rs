@@ -315,6 +315,23 @@ impl<K: TimeSeriesKey, I: ViewTimeSeries<K>> ViewTimeSeries<K> for TimeMap<I> {
 	}
 }
 
+pub struct Filled<I> {
+	inner: I,
+	from: NaiveDate,
+}
+
+impl<I> Filled<I> {
+	pub fn new(inner: I, from: NaiveDate) -> Self {
+		Self{inner, from}
+	}
+}
+
+impl<K: TimeSeriesKey, I: ViewTimeSeries<K>> ViewTimeSeries<K> for Filled<I> {
+	fn getf(&self, k: &K, _at: NaiveDate) -> Option<f64> {
+		self.inner.getf(k, self.from)
+	}
+}
+
 pub struct Diff<I> {
 	inner: I,
 	window: u32,

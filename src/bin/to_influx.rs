@@ -8,7 +8,7 @@ use chrono::NaiveDate;
 use csv;
 
 use covid;
-use covid::{StateId, DistrictId, DistrictInfo, InfectionRecord, Counters, FullCaseKey, CountMeter, global_start_date, naive_today, DiffRecord, CounterGroup, GeoCaseKey, ProgressSink, ICULoadRecord, VaccinationKey, VaccinationRecord, VaccinationLevel, HospitalizationRecord, AgeGroup, TimeSeriesKey, Diff, ViewTimeSeries};
+use covid::{StateId, DistrictId, DistrictInfo, InfectionRecord, Counters, FullCaseKey, CountMeter, global_start_date, naive_today, DiffRecord, CounterGroup, GeoCaseKey, ProgressSink, ICULoadRecord, VaccinationKey, VaccinationRecord, VaccinationLevel, HospitalizationRecord, AgeGroup, TimeSeriesKey, Diff, ViewTimeSeries, Filled};
 
 
 static GEO_MEASUREMENT_NAME: &'static str = "data_v2_geo";
@@ -463,6 +463,62 @@ impl<T: TimeSeriesKey + 'static> CookedHospitalizationData<T> {
 }
 
 
+struct RawPopulationData<T: TimeSeriesKey> {
+	pub count: Counters<T>
+}
+
+impl<T: TimeSeriesKey> RawPopulationData<T> {
+	fn ref_date() -> NaiveDate {
+		// arbitrary
+		NaiveDate::from_ymd(2020, 1, 1)
+	}
+
+	pub fn new() -> Self {
+		let ref_date = Self::ref_date();
+		Self{count: Counters::new(ref_date, ref_date + chrono::Duration::days(1))}
+	}
+
+	pub fn rekeyed<U: TimeSeriesKey, F: Fn(&T) -> Option<U>>(&self, f: F) -> RawPopulationData<U> {
+		RawPopulationData::<U>{
+			count: self.count.rekeyed(&f),
+		}
+	}
+}
+
+
+struct CookedPopulationData<T: TimeSeriesKey> {
+	count: Arc<Counters<T>>
+}
+
+impl<T: TimeSeriesKey> CookedPopulationData<T> {
+	pub fn cook(raw: RawPopulationData<T>) -> Self {
+		Self{count: Arc::new(raw.count)}
+	}
+
+	pub fn rekeyed<U: TimeSeriesKey, F: Fn(&T) -> Option<U>>(&self, f: F) -> CookedPopulationData<U> {
+		CookedPopulationData::<U>{
+			count: Arc::new(self.count.rekeyed(&f)),
+		}
+	}
+
+	pub fn view(&self) -> Arc<Filled<Arc<Counters<T>>>> {
+		Arc::new(Filled::new(self.count.clone(), RawPopulationData::<T>::ref_date()))
+	}
+}
+
+impl<T: TimeSeriesKey + 'static> CookedPopulationData<T> {
+	fn write_field_descriptors(
+		&self,
+		out: &mut Vec<covid::FieldDescriptor<Arc<dyn covid::ViewTimeSeries<T>>>>,
+	) {
+		out.push(covid::FieldDescriptor::new(
+			self.view(),
+			"population",
+		));
+	}
+}
+
+
 fn load_diff_data<'s, P: AsRef<Path>, S: ProgressSink + ?Sized>(
 		s: &'s mut S,
 		p: P,
@@ -685,7 +741,7 @@ fn load_all_data(
 	vaccfile: &str,
 	hospfile: &str,
 ) -> Result<(
-	Arc<Counters<(StateId, DistrictId)>>,
+	CookedPopulationData<GeoCaseKey>,
 	CookedCaseData<FullCaseKey>,
 	CookedVaccinationData<VaccinationKey>,
 	CookedHospitalizationData<(StateId, AgeGroup)>,
@@ -695,14 +751,16 @@ fn load_all_data(
 	assert!(end >= diffstart);
 
 	println!("loading population data ...");
-	let mut population = covid::Counters::<(StateId, DistrictId)>::new(start, end);
+	let mut population = RawPopulationData::<(StateId, DistrictId)>::new();
 	for district in districts.values() {
 		let k = (district.state.id, district.id);
-		population.get_or_create(k).fill(district.population);
+		population.count.get_or_create(k).fill(district.population);
 	}
-	let population = Arc::new(population.rekeyed(|(state_id, district_id)| {
-		Some((*state_id, remap_berlin(*district_id)))
-	}));
+	let cooked_population = CookedPopulationData::cook(
+		population.rekeyed(|(state_id, district_id)| {
+			Some((*state_id, remap_berlin(*district_id)))
+		})
+	);
 
 	// We inject berlin only later. This allows us to rekey the population above to eliminate the separate berlin districts.
 	covid::inject_berlin(states, districts);
@@ -733,7 +791,7 @@ fn load_all_data(
 	)?;
 
 	Ok((
-		population,
+		cooked_population,
 		cooked_cases,
 		cooked_vacc,
 		cooked_hosp,
@@ -793,7 +851,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 				"state",
 				"district",
 			][..],
-			population.keys(),
+			population.count.keys(),
 			|k, out| {
 				let state_id = k.0;
 				let district_id = k.1;
@@ -813,7 +871,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 		cases.write_field_descriptors(&mut fields);
 		vacc.write_field_descriptors(&mut fields);
 		icu_load.write_field_descriptors(&mut fields);
-		fields.push(covid::FieldDescriptor::new(population.clone(), "population"));
+		population.write_field_descriptors(&mut fields);
 
 		covid::stream_dynamic(
 			&client,
@@ -852,7 +910,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 			&[
 				"state",
 			][..],
-			population.keys(),
+			population.count.keys(),
 			|k, out| {
 				let state_id = k;
 				let state_name = &states.get(&state_id).unwrap().name;
@@ -867,7 +925,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 		vacc.write_field_descriptors(&mut fields);
 		icu_load.write_field_descriptors(&mut fields);
 		hosp.write_field_descriptors(&mut fields);
-		fields.push(covid::FieldDescriptor::new(population.clone(), "population"));
+		population.write_field_descriptors(&mut fields);
 
 		covid::stream_dynamic(
 			&client,
