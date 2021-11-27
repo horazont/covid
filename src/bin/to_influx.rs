@@ -3,14 +3,12 @@ use std::io;
 use std::path::Path;
 use std::sync::Arc;
 
-use smartstring::alias::{String as SmartString};
-
 use chrono::NaiveDate;
 
 use csv;
 
 use covid;
-use covid::{StateId, DistrictId, DistrictInfo, InfectionRecord, Counters, FullCaseKey, CountMeter, global_start_date, naive_today, DiffRecord, CounterGroup, SubmittableCounterGroup, Submittable, GeoCaseKey, ProgressSink, ICULoadRecord, VaccinationKey, VaccinationRecord, VaccinationLevel, HospitalizationRecord, AgeGroup, TimeSeriesKey, ViewTimeSeries, Diff, TimeMap};
+use covid::{StateId, DistrictId, DistrictInfo, InfectionRecord, Counters, FullCaseKey, CountMeter, global_start_date, naive_today, DiffRecord, CounterGroup, GeoCaseKey, ProgressSink, ICULoadRecord, VaccinationKey, VaccinationRecord, VaccinationLevel, HospitalizationRecord, AgeGroup, TimeSeriesKey};
 
 
 static GEO_MEASUREMENT_NAME: &'static str = "data_v2_geo";
@@ -189,30 +187,41 @@ impl<T: TimeSeriesKey> CookedCaseData<T> {
 	}
 }
 
+impl<T: TimeSeriesKey + 'static> CookedCaseData<T> {
+	fn write_field_descriptors<'x>(
+		&'x self,
+		out: &mut Vec<covid::FieldDescriptor<'x, dyn covid::ViewTimeSeries<T>>>,
+	) {
+		out.push(covid::FieldDescriptor::new(&self.cases_by_pub.cum, "cases_pub_cum"));
+		out.push(covid::FieldDescriptor::new(&self.cases_by_pub.d1, "cases_pub_d1"));
+		out.push(covid::FieldDescriptor::new(&self.cases_by_pub.d7, "cases_pub_d7"));
+		out.push(covid::FieldDescriptor::new(&self.cases_by_pub.d7s7, "cases_pub_d7s7"));
+		out.push(covid::FieldDescriptor::new(&self.cases_by_ref.cum, "cases_ref_cum"));
+		out.push(covid::FieldDescriptor::new(&self.cases_by_ref.d1, "cases_ref_d1"));
+		out.push(covid::FieldDescriptor::new(&self.cases_by_ref.d7, "cases_ref_d7"));
+		out.push(covid::FieldDescriptor::new(&self.cases_by_ref.d7s7, "cases_ref_d7s7"));
+		out.push(covid::FieldDescriptor::new(&self.cases_by_report.cum, "cases_rep_cum"));
+		out.push(covid::FieldDescriptor::new(&self.cases_by_report.d1, "cases_rep_d1"));
+		out.push(covid::FieldDescriptor::new(&self.cases_by_report.d7, "cases_rep_d7"));
+		out.push(covid::FieldDescriptor::new(&self.cases_by_report.d7s7, "cases_rep_d7s7"));
 
-struct SubmittableCaseData<T: TimeSeriesKey> {
-	pub cases_by_pub: SubmittableCounterGroup<T>,
-	pub case_delay_total: Submittable<T>,
-	pub cases_by_ref: SubmittableCounterGroup<T>,
-	pub cases_by_report: SubmittableCounterGroup<T>,
-	pub deaths: SubmittableCounterGroup<T>,
-	pub deaths_by_pub: SubmittableCounterGroup<T>,
-	pub recovered: SubmittableCounterGroup<T>,
-	pub recovered_by_pub: SubmittableCounterGroup<T>,
-}
+		out.push(covid::FieldDescriptor::new(&self.deaths.cum, "deaths_ref_cum"));
+		out.push(covid::FieldDescriptor::new(&self.deaths.d1, "deaths_ref_d1"));
+		out.push(covid::FieldDescriptor::new(&self.deaths.d7, "deaths_ref_d7"));
+		out.push(covid::FieldDescriptor::new(&self.deaths.d7s7, "deaths_ref_d7s7"));
+		out.push(covid::FieldDescriptor::new(&self.deaths_by_pub.cum, "deaths_pub_cum"));
+		out.push(covid::FieldDescriptor::new(&self.deaths_by_pub.d1, "deaths_pub_d1"));
+		out.push(covid::FieldDescriptor::new(&self.deaths_by_pub.d7, "deaths_pub_d7"));
+		out.push(covid::FieldDescriptor::new(&self.deaths_by_pub.d7s7, "deaths_pub_d7s7"));
 
-impl<T: TimeSeriesKey> From<CookedCaseData<T>> for SubmittableCaseData<T> {
-	fn from(other: CookedCaseData<T>) -> Self {
-		Self{
-			cases_by_pub: other.cases_by_pub.into(),
-			case_delay_total: other.case_delay_total.into(),
-			cases_by_ref: other.cases_by_ref.into(),
-			cases_by_report: other.cases_by_report.into(),
-			deaths: other.deaths.into(),
-			deaths_by_pub: other.deaths_by_pub.into(),
-			recovered: other.recovered.into(),
-			recovered_by_pub: other.recovered_by_pub.into(),
-		}
+		out.push(covid::FieldDescriptor::new(&self.recovered.cum, "recovered_ref_cum"));
+		out.push(covid::FieldDescriptor::new(&self.recovered.d1, "recovered_ref_d1"));
+		out.push(covid::FieldDescriptor::new(&self.recovered.d7, "recovered_ref_d7"));
+		out.push(covid::FieldDescriptor::new(&self.recovered.d7s7, "recovered_ref_d7s7"));
+		out.push(covid::FieldDescriptor::new(&self.recovered_by_pub.cum, "recovered_pub_cum"));
+		out.push(covid::FieldDescriptor::new(&self.recovered_by_pub.d1, "recovered_pub_d1"));
+		out.push(covid::FieldDescriptor::new(&self.recovered_by_pub.d7, "recovered_pub_d7"));
+		out.push(covid::FieldDescriptor::new(&self.recovered_by_pub.d7s7, "recovered_pub_d7s7"));
 	}
 }
 
@@ -247,22 +256,15 @@ impl<T: TimeSeriesKey> ICULoadData<T> {
 	}
 }
 
-
-struct SubmittableICULoadData<T: TimeSeriesKey> {
-	pub curr_covid_cases: Submittable<T>,
-	pub curr_covid_cases_invasive: Submittable<T>,
-	pub curr_beds_free: Submittable<T>,
-	pub curr_beds_in_use: Submittable<T>,
-}
-
-impl<T: TimeSeriesKey> From<ICULoadData<T>> for SubmittableICULoadData<T> {
-	fn from(other: ICULoadData<T>) -> Self {
-		Self{
-			curr_covid_cases: other.curr_covid_cases.into(),
-			curr_covid_cases_invasive: other.curr_covid_cases_invasive.into(),
-			curr_beds_free: other.curr_beds_free.into(),
-			curr_beds_in_use: other.curr_beds_in_use.into(),
-		}
+impl<T: TimeSeriesKey + 'static> ICULoadData<T> {
+	fn write_field_descriptors<'x>(
+		&'x self,
+		out: &mut Vec<covid::FieldDescriptor<'x, dyn covid::ViewTimeSeries<T>>>,
+	) {
+		out.push(covid::FieldDescriptor::new(&self.curr_covid_cases, "icu_covid_cases"));
+		out.push(covid::FieldDescriptor::new(&self.curr_covid_cases_invasive, "icu_covid_cases_invasive"));
+		out.push(covid::FieldDescriptor::new(&self.curr_beds_free, "icu_beds_free"));
+		out.push(covid::FieldDescriptor::new(&self.curr_beds_in_use, "icu_beds_in_use"));
 	}
 }
 
@@ -360,22 +362,26 @@ impl<T: TimeSeriesKey> CookedVaccinationData<T> {
 	}
 }
 
+impl<T: TimeSeriesKey + 'static> CookedVaccinationData<T> {
+	fn write_field_descriptors<'x>(
+		&'x self,
+		out: &mut Vec<covid::FieldDescriptor<'x, dyn covid::ViewTimeSeries<T>>>,
+	) {
+		out.push(covid::FieldDescriptor::new(&self.first_vacc.cum, "vacc_first_cum"));
+		out.push(covid::FieldDescriptor::new(&self.first_vacc.d1, "vacc_first_d1"));
+		out.push(covid::FieldDescriptor::new(&self.first_vacc.d7, "vacc_first_d7"));
+		out.push(covid::FieldDescriptor::new(&self.first_vacc.d7s7, "vacc_first_d7s7"));
 
-struct SubmittableVaccinationData<T: TimeSeriesKey> {
-	pub first_vacc: SubmittableCounterGroup<T>,
-	pub basic_vacc: SubmittableCounterGroup<T>,
-	pub basic_vacc_d180: Submittable<T>,
-	pub full_vacc: SubmittableCounterGroup<T>,
-}
+		out.push(covid::FieldDescriptor::new(&self.basic_vacc.cum, "vacc_basic_cum"));
+		out.push(covid::FieldDescriptor::new(&self.basic_vacc.d1, "vacc_basic_d1"));
+		out.push(covid::FieldDescriptor::new(&self.basic_vacc.d7, "vacc_basic_d7"));
+		out.push(covid::FieldDescriptor::new(&self.basic_vacc.d7s7, "vacc_basic_d7s7"));
+		out.push(covid::FieldDescriptor::new(&self.basic_vacc_d180, "vacc_basic_d180"));
 
-impl<T: TimeSeriesKey> From<CookedVaccinationData<T>> for SubmittableVaccinationData<T> {
-	fn from(other: CookedVaccinationData<T>) -> Self {
-		Self{
-			first_vacc: other.first_vacc.into(),
-			basic_vacc: other.basic_vacc.into(),
-			basic_vacc_d180: other.basic_vacc_d180.into(),
-			full_vacc: other.full_vacc.into(),
-		}
+		out.push(covid::FieldDescriptor::new(&self.full_vacc.cum, "vacc_full_cum"));
+		out.push(covid::FieldDescriptor::new(&self.full_vacc.d1, "vacc_full_d1"));
+		out.push(covid::FieldDescriptor::new(&self.full_vacc.d7, "vacc_full_d7"));
+		out.push(covid::FieldDescriptor::new(&self.full_vacc.d7s7, "vacc_full_d7s7"));
 	}
 }
 
@@ -436,128 +442,16 @@ impl<T: TimeSeriesKey> CookedHospitalizationData<T> {
 	}
 }
 
-struct SubmittableHospitalizationData<T: TimeSeriesKey> {
-	pub cases: SubmittableCounterGroup<T>,
-}
-
-impl<T: TimeSeriesKey> From<CookedHospitalizationData<T>> for SubmittableHospitalizationData<T> {
-	fn from(other: CookedHospitalizationData<T>) -> Self {
-		Self{
-			cases: other.cases.into(),
-		}
+impl<T: TimeSeriesKey + 'static> CookedHospitalizationData<T> {
+	fn write_field_descriptors<'x>(
+		&'x self,
+		out: &mut Vec<covid::FieldDescriptor<'x, dyn covid::ViewTimeSeries<T>>>,
+	) {
+		out.push(covid::FieldDescriptor::new(&self.cases.cum, "hosp_cum"));
+		out.push(covid::FieldDescriptor::new(&self.cases.d1, "hosp_d1"));
+		out.push(covid::FieldDescriptor::new(&self.cases.d7, "hosp_d7"));
+		out.push(covid::FieldDescriptor::new(&self.cases.d7s7, "hosp_d7s7"));
 	}
-}
-
-
-
-fn stream_data<K: TimeSeriesKey>(
-		sink: &covid::influxdb::Client,
-		measurement: &str,
-		tags: Vec<SmartString>,
-		keyset: &[(&K, Vec<SmartString>)],
-		data: &CookedCaseData<K>,
-		extra_fields: &[SmartString],
-		extra_vecs: &[&dyn ViewTimeSeries<K>],
-		) -> Result<(), covid::influxdb::Error>
-{
-	let mut fields = vec![
-		"cases_rep_cum".into(),
-		"cases_rep_d1".into(),
-		"cases_rep_d7".into(),
-		"cases_rep_d7s7".into(),
-		"cases_ref_cum".into(),
-		"cases_ref_d1".into(),
-		"cases_ref_d7".into(),
-		"cases_ref_d7s7".into(),
-		"cases_pub_cum".into(),
-		"cases_pub_d1".into(),
-		"cases_pub_d7".into(),
-		"cases_pub_d7s7".into(),
-		"cases_pub_delay".into(),
-		"deaths_ref_cum".into(),
-		"deaths_ref_d1".into(),
-		"deaths_ref_d7".into(),
-		"deaths_ref_d7s7".into(),
-		"deaths_pub_cum".into(),
-		"deaths_pub_d1".into(),
-		"deaths_pub_d7".into(),
-		"deaths_pub_d7s7".into(),
-		"recovered_ref_cum".into(),
-		"recovered_ref_d1".into(),
-		"recovered_ref_d7".into(),
-		"recovered_ref_d7s7".into(),
-		"recovered_pub_cum".into(),
-		"recovered_pub_d1".into(),
-		"recovered_pub_d7".into(),
-		"recovered_pub_d7s7".into(),
-	];
-
-	let cases_by_report_d1 = Diff::padded(&data.cases_by_report.cum, 1, 0.);
-	let cases_by_report_d7 = Diff::padded(&data.cases_by_report.cum, 7, 0.);
-	let cases_by_report_d7s7 = TimeMap::shift(&cases_by_report_d7, 7);
-	let cases_by_ref_d1 = Diff::padded(&data.cases_by_ref.cum, 1, 0.);
-	let cases_by_ref_d7 = Diff::padded(&data.cases_by_ref.cum, 7, 0.);
-	let cases_by_ref_d7s7 = TimeMap::shift(&cases_by_ref_d7, 7);
-	let cases_by_pub_d1 = Diff::padded(&data.cases_by_pub.cum, 1, 0.);
-	let cases_by_pub_d7 = Diff::padded(&data.cases_by_pub.cum, 7, 0.);
-	let cases_by_pub_d7s7 = TimeMap::shift(&cases_by_pub_d7, 7);
-	let deaths_by_ref_d1 = Diff::padded(&data.deaths.cum, 1, 0.);
-	let deaths_by_ref_d7 = Diff::padded(&data.deaths.cum, 7, 0.);
-	let deaths_by_ref_d7s7 = TimeMap::shift(&deaths_by_ref_d7, 7);
-	let deaths_by_pub_d1 = Diff::padded(&data.deaths_by_pub.cum, 1, 0.);
-	let deaths_by_pub_d7 = Diff::padded(&data.deaths_by_pub.cum, 7, 0.);
-	let deaths_by_pub_d7s7 = TimeMap::shift(&deaths_by_pub_d7, 7);
-	let recovered_by_ref_d1 = Diff::padded(&data.recovered.cum, 1, 0.);
-	let recovered_by_ref_d7 = Diff::padded(&data.recovered.cum, 7, 0.);
-	let recovered_by_ref_d7s7 = TimeMap::shift(&recovered_by_ref_d7, 7);
-	let recovered_by_pub_d1 = Diff::padded(&data.recovered_by_pub.cum, 1, 0.);
-	let recovered_by_pub_d7 = Diff::padded(&data.recovered_by_pub.cum, 7, 0.);
-	let recovered_by_pub_d7s7 = TimeMap::shift(&recovered_by_pub_d7, 7);
-	let mut vecs = vec![
-		&data.cases_by_report.cum as &dyn ViewTimeSeries<_>,
-		&cases_by_report_d1 as &dyn ViewTimeSeries<_>,
-		&cases_by_report_d7 as &dyn ViewTimeSeries<_>,
-		&cases_by_report_d7s7 as &dyn ViewTimeSeries<_>,
-		&data.cases_by_ref.cum as &dyn ViewTimeSeries<_>,
-		&cases_by_ref_d1 as &dyn ViewTimeSeries<_>,
-		&cases_by_ref_d7 as &dyn ViewTimeSeries<_>,
-		&cases_by_ref_d7s7 as &dyn ViewTimeSeries<_>,
-		&data.cases_by_pub.cum as &dyn ViewTimeSeries<_>,
-		&cases_by_pub_d1 as &dyn ViewTimeSeries<_>,
-		&cases_by_pub_d7 as &dyn ViewTimeSeries<_>,
-		&cases_by_pub_d7s7 as &dyn ViewTimeSeries<_>,
-		&data.case_delay_total as &dyn ViewTimeSeries<_>,
-		&data.deaths.cum as &dyn ViewTimeSeries<_>,
-		&deaths_by_ref_d1 as &dyn ViewTimeSeries<_>,
-		&deaths_by_ref_d7 as &dyn ViewTimeSeries<_>,
-		&deaths_by_ref_d7s7 as &dyn ViewTimeSeries<_>,
-		&data.deaths_by_pub.cum as &dyn ViewTimeSeries<_>,
-		&deaths_by_pub_d1 as &dyn ViewTimeSeries<_>,
-		&deaths_by_pub_d7 as &dyn ViewTimeSeries<_>,
-		&deaths_by_pub_d7s7 as &dyn ViewTimeSeries<_>,
-		&data.recovered.cum as &dyn ViewTimeSeries<_>,
-		&recovered_by_ref_d1 as &dyn ViewTimeSeries<_>,
-		&recovered_by_ref_d7 as &dyn ViewTimeSeries<_>,
-		&recovered_by_ref_d7s7 as &dyn ViewTimeSeries<_>,
-		&data.recovered_by_pub.cum as &dyn ViewTimeSeries<_>,
-		&recovered_by_pub_d1 as &dyn ViewTimeSeries<_>,
-		&recovered_by_pub_d7 as &dyn ViewTimeSeries<_>,
-		&recovered_by_pub_d7s7 as &dyn ViewTimeSeries<_>,
-	];
-	fields.extend_from_slice(extra_fields);
-	vecs.extend_from_slice(extra_vecs);
-
-	covid::stream(
-		sink,
-		&mut *covid::default_output(),
-		measurement,
-		tags,
-		fields,
-		keyset,
-		data.cases_by_report.cum.start(),
-		data.cases_by_report.cum.len(),
-		&vecs[..],
-	)
 }
 
 
@@ -776,88 +670,41 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 				_ => None,
 			}
 		});
-		let vacc: SubmittableVaccinationData<_> = vacc.into();
-		let icu_load: SubmittableICULoadData<_> = icu_load.clone().into();
-		let population: Submittable<_> = population.clone().into();
-		let mut keys = covid::joined_keyset_ref!(
-			_,
-			&cases.cases_by_report.cum,
-			&cases.cases_by_ref.cum,
-			&cases.cases_by_pub.cum,
-			&cases.deaths.cum,
-			&cases.deaths_by_pub.cum,
-			&cases.recovered.cum,
-			&icu_load.curr_beds_free,
-			&vacc.first_vacc.cum,
-			&vacc.basic_vacc.cum,
-			&vacc.full_vacc.cum
+		let keys: Vec<_> = covid::prepare_keyset(
+			&[
+				"state",
+				"district",
+			][..],
+			population.keys(),
+			|k, out| {
+				let state_id = k.0;
+				let district_id = k.1;
+				let state_name = &states.get(&state_id).unwrap().name;
+				let district_name = match &districts.get(&district_id) {
+					Some(i) => &i.name,
+					None => panic!("failed to find district {} in data", district_id),
+				};
+				out.push(state_name.into());
+				out.push(district_name.into());
+			},
 		);
-		let keys: Vec<_> = keys.drain().map(|k| {
-			let state_id = k.0;
-			let district_id = k.1;
-			let state_name = &states.get(&state_id).unwrap().name;
-			let district_name = match &districts.get(&district_id) {
-				Some(i) => &i.name,
-				None => panic!("failed to find district {} in data", district_id),
-			};
-			let tagv: Vec<SmartString> = vec![
-				state_name.into(),
-				district_name.into(),
-			];
-			(k, tagv)
-		}).collect();
 
 		println!("streaming {} ...",GEO_MEASUREMENT_NAME);
 
-		stream_data(
+		let mut fields = Vec::new();
+		cases.write_field_descriptors(&mut fields);
+		vacc.write_field_descriptors(&mut fields);
+		icu_load.write_field_descriptors(&mut fields);
+		fields.push(covid::FieldDescriptor::new(&population, "population"));
+
+		covid::stream_dynamic(
 			&client,
+			&mut *covid::default_output(),
 			GEO_MEASUREMENT_NAME,
-			vec![
-				"state".into(),
-				"district".into(),
-			],
+			start,
+			(end - start).num_days() as usize,
 			&keys,
-			&cases,
-			&[
-				"population".into(),
-				"icu_covid_cases".into(),
-				"icu_covid_cases_invasive".into(),
-				"icu_beds_free".into(),
-				"icu_beds_in_use".into(),
-				"vacc_first_cum".into(),
-				"vacc_first_d1".into(),
-				"vacc_first_d7".into(),
-				"vacc_first_d7s7".into(),
-				"vacc_basic_cum".into(),
-				"vacc_basic_d1".into(),
-				"vacc_basic_d7".into(),
-				"vacc_basic_d7s7".into(),
-				"vacc_basic_d180".into(),
-				"vacc_full_cum".into(),
-				"vacc_full_d1".into(),
-				"vacc_full_d7".into(),
-				"vacc_full_d7s7".into(),
-			],
-			&[
-				&population,
-				&icu_load.curr_covid_cases,
-				&icu_load.curr_covid_cases_invasive,
-				&icu_load.curr_beds_free,
-				&icu_load.curr_beds_in_use,
-				&vacc.first_vacc.cum,
-				&vacc.first_vacc.d1,
-				&vacc.first_vacc.d7,
-				&vacc.first_vacc.d7s7,
-				&vacc.basic_vacc.cum,
-				&vacc.basic_vacc.d1,
-				&vacc.basic_vacc.d7,
-				&vacc.basic_vacc.d7s7,
-				&vacc.basic_vacc_d180,
-				&vacc.full_vacc.cum,
-				&vacc.full_vacc.d1,
-				&vacc.full_vacc.d7,
-				&vacc.full_vacc.d7s7,
-			],
+			&fields[..],
 		)?;
 	}
 
@@ -877,98 +724,44 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 				_ => None,
 			}
 		});
-		let vacc: SubmittableVaccinationData<_> = vacc.into();
-		let icu_load: SubmittableICULoadData<_> = icu_load.rekeyed(|(state_id, _)| {
+		let icu_load = icu_load.rekeyed(|(state_id, _)| {
 			Some(*state_id)
-		}).into();
-		let hosp: SubmittableHospitalizationData<_> = hosp.rekeyed(|(state_id, _)| {
+		});
+		let hosp = hosp.rekeyed(|(state_id, _)| {
 			Some(*state_id)
-		}).into();
-		let population: Submittable<_> = population.rekeyed(|(state_id, _)| {
+		});
+		let population = population.rekeyed(|(state_id, _)| {
 			Some(*state_id)
-		}).into();
-		let mut keys = covid::joined_keyset_ref!(
-			_,
-			&cases.cases_by_report.cum,
-			&cases.cases_by_ref.cum,
-			&cases.cases_by_pub.cum,
-			&cases.deaths.cum,
-			&cases.deaths_by_pub.cum,
-			&cases.recovered.cum,
-			&icu_load.curr_beds_free,
-			&vacc.first_vacc.cum,
-			&vacc.basic_vacc.cum,
-			&vacc.full_vacc.cum,
-			&hosp.cases.cum,
-			&population
+		});
+		let keys: Vec<_> = covid::prepare_keyset(
+			&[
+				"state",
+			][..],
+			population.keys(),
+			|k, out| {
+				let state_id = k;
+				let state_name = &states.get(&state_id).unwrap().name;
+				out.push(state_name.into());
+			},
 		);
-		let keys: Vec<_> = keys.drain().map(|k| {
-			let state_id = k;
-			let state_name = &states.get(&state_id).unwrap().name;
-			let tagv: Vec<SmartString> = vec![
-				state_name.into(),
-			];
-			(k, tagv)
-		}).collect();
 
-		println!("streaming {} ...",GEO_LIGHT_MEASUREMENT_NAME);
+		println!("streaming {} ...", GEO_LIGHT_MEASUREMENT_NAME);
 
-		stream_data(
+		let mut fields = Vec::new();
+		cases.write_field_descriptors(&mut fields);
+		vacc.write_field_descriptors(&mut fields);
+		icu_load.write_field_descriptors(&mut fields);
+		hosp.write_field_descriptors(&mut fields);
+		fields.push(covid::FieldDescriptor::new(&population, "population"));
+
+		covid::stream_dynamic(
 			&client,
+			&mut *covid::default_output(),
 			GEO_LIGHT_MEASUREMENT_NAME,
-			vec![
-				"state".into(),
-			],
+			start,
+			(end - start).num_days() as usize,
 			&keys,
-			&cases,
-			&[
-				"population".into(),
-				"icu_covid_cases".into(),
-				"icu_covid_cases_invasive".into(),
-				"icu_beds_free".into(),
-				"icu_beds_in_use".into(),
-				"vacc_first_cum".into(),
-				"vacc_first_d1".into(),
-				"vacc_first_d7".into(),
-				"vacc_first_d7s7".into(),
-				"vacc_basic_cum".into(),
-				"vacc_basic_d1".into(),
-				"vacc_basic_d7".into(),
-				"vacc_basic_d7s7".into(),
-				"vacc_basic_d180".into(),
-				"vacc_full_cum".into(),
-				"vacc_full_d1".into(),
-				"vacc_full_d7".into(),
-				"vacc_full_d7s7".into(),
-				"hosp_cum".into(),
-				"hosp_d1".into(),
-				"hosp_d7".into(),
-				"hosp_d7s7".into(),
-			],
-			&[
-				&population,
-				&icu_load.curr_covid_cases,
-				&icu_load.curr_covid_cases_invasive,
-				&icu_load.curr_beds_free,
-				&icu_load.curr_beds_in_use,
-				&vacc.first_vacc.cum,
-				&vacc.first_vacc.d1,
-				&vacc.first_vacc.d7,
-				&vacc.first_vacc.d7s7,
-				&vacc.basic_vacc.cum,
-				&vacc.basic_vacc.d1,
-				&vacc.basic_vacc.d7,
-				&vacc.basic_vacc.d7s7,
-				&vacc.basic_vacc_d180,
-				&vacc.full_vacc.cum,
-				&vacc.full_vacc.d1,
-				&vacc.full_vacc.d7,
-				&vacc.full_vacc.d7s7,
-				&hosp.cases.cum,
-				&hosp.cases.d1,
-				&hosp.cases.d7,
-				&hosp.cases.d7s7,
-			],
+			&fields[..],
 		)?;
 	}
 
@@ -980,40 +773,35 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 		});
 		drop(cases);
 		let cases = new_cases;
-		let mut keys = covid::joined_keyset_ref!(
-			_,
-			&cases.cases_by_report.cum,
-			&cases.cases_by_ref.cum,
-			&cases.cases_by_pub.cum,
-			&cases.deaths.cum,
-			&cases.deaths_by_pub.cum,
-			&cases.recovered.cum
+		let keys: Vec<_> = covid::prepare_keyset(
+			&[
+				"state",
+				"age",
+				"sex",
+			][..],
+			cases.cases_by_ref.cum.keys(),
+			|k, out| {
+				let state_id = k.0;
+				let state_name = &states.get(&state_id).unwrap().name;
+				out.push(state_name.into());
+				out.push(k.1.to_string().into());
+				out.push(k.2.to_string().into());
+			},
 		);
-		let keys: Vec<_> = keys.drain().map(|k| {
-			let state_id = k.0;
-			let state_name = &states.get(&state_id).unwrap().name;
-			let tagv: Vec<SmartString> = vec![
-				state_name.into(),
-				k.1.to_string().into(),
-				k.2.to_string().into(),
-			];
-			(k, tagv)
-		}).collect();
 
 		println!("streaming {} ...", DEMO_MEASUREMENT_NAME);
 
-		stream_data(
+		let mut fields = Vec::new();
+		cases.write_field_descriptors(&mut fields);
+
+		covid::stream_dynamic(
 			&client,
+			&mut *covid::default_output(),
 			DEMO_MEASUREMENT_NAME,
-			vec![
-				"state".into(),
-				"age".into(),
-				"sex".into(),
-			],
+			start,
+			(end - start).num_days() as usize,
 			&keys,
-			&cases,
-			&[],
-			&[],
+			&fields[..],
 		)?;
 	}
 

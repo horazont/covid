@@ -31,11 +31,11 @@ fn write_escaped<W: io::Write>(w: &mut W, s: &str, pat: &[char]) -> io::Result<(
 	Ok(())
 }
 
-fn write_name<W: io::Write>(w: &mut W, s: &str) -> io::Result<()> {
+pub fn write_name<W: io::Write>(w: &mut W, s: &str) -> io::Result<()> {
 	write_escaped(w, s, &['\\', ',', ' ', '\t', '\n', '\r', '='])
 }
 
-fn write_measurement<W: io::Write>(w: &mut W, s: &str) -> io::Result<()> {
+pub fn write_measurement<W: io::Write>(w: &mut W, s: &str) -> io::Result<()> {
 	write_escaped(w, s, &['\\', ',', ' ', '\t', '\n', '\r'])
 }
 

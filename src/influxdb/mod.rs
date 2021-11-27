@@ -8,7 +8,7 @@ use bytes::{BytesMut, BufMut};
 
 use serde::{Serialize, Deserialize};
 
-mod readout;
+pub mod readout;
 
 pub use readout::{Precision, Readout, Sample};
 
@@ -78,13 +78,13 @@ impl Client {
 		}
 	}
 
-	pub fn post(
+	pub fn post_raw<T: Into<reqwest::blocking::Body>>(
 			&self,
-			database: &'_ str,
-			retention_policy: Option<&'_ str>,
-			auth: Option<&'_ Auth>,
+			database: &str,
+			retention_policy: Option<&str>,
+			auth: Option<&Auth>,
 			precision: Precision,
-			readouts: &[&Readout],
+			body: T,
 			) -> Result<(), Error>
 	{
 		let req = self.client.post(self.write_url.clone());
@@ -97,19 +97,7 @@ impl Client {
 			Some(policy) => req.query(&[("rp", policy)]),
 			None => req,
 		};
-
-		let body = BytesMut::new();
-		let mut body_writer = body.writer();
-		trace!("serializing {} readouts", readouts.len());
-		for readout in readouts {
-			if precision != readout.precision {
-				panic!("inconsistent precisions in readouts!")
-			}
-			readout.write(&mut body_writer).unwrap();  // BytesMut is infallible
-		}
-
-		let body = body_writer.into_inner();
-		let req = req.body(body.freeze());
+		let req = req.body(body);
 		let resp = req.send()?;
 		match resp.error_for_status_ref() {
 			Ok(resp) => match resp.status() {
@@ -123,5 +111,33 @@ impl Client {
 				_ => Err(Error::Request(e)),
 			},
 		}
+	}
+
+	pub fn post(
+			&self,
+			database: &'_ str,
+			retention_policy: Option<&'_ str>,
+			auth: Option<&'_ Auth>,
+			precision: Precision,
+			readouts: &[&Readout],
+			) -> Result<(), Error>
+	{
+		let body = BytesMut::new();
+		let mut body_writer = body.writer();
+		trace!("serializing {} readouts", readouts.len());
+		for readout in readouts {
+			if precision != readout.precision {
+				panic!("inconsistent precisions in readouts!")
+			}
+			readout.write(&mut body_writer).unwrap();  // BytesMut is infallible
+		}
+		let body = body_writer.into_inner();
+		self.post_raw(
+			database,
+			retention_policy,
+			auth,
+			precision,
+			body.freeze(),
+		)
 	}
 }
