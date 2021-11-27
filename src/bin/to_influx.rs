@@ -193,6 +193,8 @@ impl<T: TimeSeriesKey + 'static> CookedCaseData<T> {
 		out.push(covid::FieldDescriptor::new(self.cases_by_ref.d1.clone(), "cases_ref_d1"));
 		out.push(covid::FieldDescriptor::new(self.cases_by_ref.d7.clone(), "cases_ref_d7"));
 		out.push(covid::FieldDescriptor::new(self.cases_by_ref.d7s7.clone(), "cases_ref_d7s7"));
+		out.push(covid::FieldDescriptor::new(Arc::new(Diff::padded(self.cases_by_ref.cum.clone(), 28, 0.)), "cases_ref_d28"));
+		out.push(covid::FieldDescriptor::new(Arc::new(Diff::padded(self.cases_by_ref.cum.clone(), 112, 0.)), "cases_ref_d112"));
 		out.push(covid::FieldDescriptor::new(self.cases_by_report.cum.clone(), "cases_rep_cum"));
 		out.push(covid::FieldDescriptor::new(self.cases_by_report.d1.clone(), "cases_rep_d1"));
 		out.push(covid::FieldDescriptor::new(self.cases_by_report.d7.clone(), "cases_rep_d7"));
@@ -202,6 +204,8 @@ impl<T: TimeSeriesKey + 'static> CookedCaseData<T> {
 		out.push(covid::FieldDescriptor::new(self.deaths.d1.clone(), "deaths_ref_d1"));
 		out.push(covid::FieldDescriptor::new(self.clamp_result(self.deaths.d7.clone()), "deaths_ref_d7"));
 		out.push(covid::FieldDescriptor::new(self.clamp_result(self.deaths.d7s7.clone()), "deaths_ref_d7s7"));
+		out.push(covid::FieldDescriptor::new(self.clamp_result(Arc::new(Diff::padded(self.deaths.cum.clone(), 28, 0.))), "deaths_ref_d28"));
+		out.push(covid::FieldDescriptor::new(self.clamp_result(Arc::new(Diff::padded(self.deaths.cum.clone(), 112, 0.))), "deaths_ref_d112"));
 		out.push(covid::FieldDescriptor::new(self.deaths_by_pub.d1.clone(), "deaths_pub_d1"));
 		out.push(covid::FieldDescriptor::new(self.deaths_by_pub.d7.clone(), "deaths_pub_d7"));
 		out.push(covid::FieldDescriptor::new(self.deaths_by_pub.d7s7.clone(), "deaths_pub_d7s7"));
