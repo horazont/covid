@@ -89,6 +89,7 @@ impl RawCaseData {
 struct ParboiledCaseData {
 	pub cases_by_pub: Counters<FullCaseKey>,
 	pub case_delay_total: Counters<FullCaseKey>,
+	pub cases_delayed: Counters<FullCaseKey>,
 	pub deaths_by_pub: Counters<FullCaseKey>,
 	pub recovered_by_pub: Counters<FullCaseKey>,
 }
@@ -98,6 +99,7 @@ impl ParboiledCaseData {
 		Self{
 			cases_by_pub: Counters::new(start, end),
 			case_delay_total: Counters::new(start, end),
+			cases_delayed: Counters::new(start, end),
 			deaths_by_pub: Counters::new(start, end),
 			recovered_by_pub: Counters::new(start, end),
 		}
@@ -111,22 +113,18 @@ impl ParboiledCaseData {
 		let district_info = district_map.get(&rec.district_id).expect("unknown district");
 		let k = (district_info.state.id, rec.district_id, rec.age_group, rec.sex);
 		let ref_index = self.cases_by_pub.date_index(rec.date).expect("date out of range");
-		if rec.cases > 0 {
-			self.cases_by_pub.get_or_create(k)[ref_index] += rec.cases;
-			self.case_delay_total.get_or_create(k)[ref_index] += rec.delay_total;
-		}
-		if rec.deaths > 0 {
-			self.deaths_by_pub.get_or_create(k)[ref_index] += rec.deaths;
-		}
-		if rec.recovered > 0 {
-			self.recovered_by_pub.get_or_create(k)[ref_index] += rec.recovered;
-		}
+		self.cases_by_pub.get_or_create(k)[ref_index] += rec.cases;
+		self.case_delay_total.get_or_create(k)[ref_index] += rec.delay_total;
+		self.cases_delayed.get_or_create(k)[ref_index] += rec.cases_delayed;
+		self.deaths_by_pub.get_or_create(k)[ref_index] += rec.deaths;
+		self.recovered_by_pub.get_or_create(k)[ref_index] += rec.recovered;
 	}
 
 	fn remapped<F: Fn(&FullCaseKey) -> Option<FullCaseKey>>(&self, f: F) -> ParboiledCaseData {
 		ParboiledCaseData{
 			cases_by_pub: self.cases_by_pub.rekeyed(&f),
 			case_delay_total: self.case_delay_total.rekeyed(&f),
+			cases_delayed: self.cases_delayed.rekeyed(&f),
 			deaths_by_pub: self.deaths_by_pub.rekeyed(&f),
 			recovered_by_pub: self.recovered_by_pub.rekeyed(&f),
 		}
@@ -136,7 +134,8 @@ impl ParboiledCaseData {
 
 struct CookedCaseData<T: TimeSeriesKey> {
 	pub cases_by_pub: CounterGroup<T>,
-	pub case_delay_total: Counters<T>,
+	pub case_delay_total: Arc<Counters<T>>,
+	pub cases_delayed: Arc<Counters<T>>,
 	pub cases_by_ref: CounterGroup<T>,
 	pub cases_by_report: CounterGroup<T>,
 	pub deaths: CounterGroup<T>,
@@ -149,7 +148,8 @@ impl CookedCaseData<FullCaseKey> {
 	fn cook(raw: RawCaseData, parboiled: ParboiledCaseData) -> Self {
 		Self{
 			cases_by_pub: CounterGroup::from_d1(parboiled.cases_by_pub),
-			case_delay_total: parboiled.case_delay_total,
+			case_delay_total: Arc::new(parboiled.case_delay_total),
+			cases_delayed: Arc::new(parboiled.cases_delayed),
 			cases_by_ref: CounterGroup::from_d1(raw.cases_by_ref),
 			cases_by_report: CounterGroup::from_d1(raw.cases_by_report),
 			deaths: CounterGroup::from_d1(raw.deaths),
@@ -164,7 +164,8 @@ impl<T: TimeSeriesKey> CookedCaseData<T> {
 	pub fn rekeyed<U: TimeSeriesKey, F: Fn(&T) -> Option<U>>(&self, f: F) -> CookedCaseData<U> {
 		CookedCaseData::<U>{
 			cases_by_pub: self.cases_by_pub.rekeyed(&f),
-			case_delay_total: self.case_delay_total.rekeyed(&f),
+			case_delay_total: Arc::new(self.case_delay_total.rekeyed(&f)),
+			cases_delayed: Arc::new(self.cases_delayed.rekeyed(&f)),
 			cases_by_ref: self.cases_by_ref.rekeyed(&f),
 			cases_by_report: self.cases_by_report.rekeyed(&f),
 			deaths: self.deaths.rekeyed(&f),
@@ -207,6 +208,9 @@ impl<T: TimeSeriesKey + 'static> CookedCaseData<T> {
 		out.push(covid::FieldDescriptor::new(self.recovered_by_pub.d1.clone(), "recovered_pub_d1"));
 		out.push(covid::FieldDescriptor::new(self.recovered_by_pub.d7.clone(), "recovered_pub_d7"));
 		out.push(covid::FieldDescriptor::new(self.recovered_by_pub.d7s7.clone(), "recovered_pub_d7s7"));
+
+		out.push(covid::FieldDescriptor::new(self.cases_delayed.clone(), "meta_delay_cases"));
+		out.push(covid::FieldDescriptor::new(self.case_delay_total.clone(), "meta_delay_total"));
 	}
 }
 
