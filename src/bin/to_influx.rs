@@ -180,7 +180,6 @@ impl<T: TimeSeriesKey + 'static> CookedCaseData<T> {
 		&self,
 		out: &mut Vec<covid::FieldDescriptor<Arc<dyn covid::ViewTimeSeries<T>>>>,
 	) {
-		out.push(covid::FieldDescriptor::new(self.cases_by_pub.cum.clone(), "cases_pub_cum"));
 		out.push(covid::FieldDescriptor::new(self.cases_by_pub.d1.clone(), "cases_pub_d1"));
 		out.push(covid::FieldDescriptor::new(self.cases_by_pub.d7.clone(), "cases_pub_d7"));
 		out.push(covid::FieldDescriptor::new(self.cases_by_pub.d7s7.clone(), "cases_pub_d7s7"));
@@ -197,7 +196,6 @@ impl<T: TimeSeriesKey + 'static> CookedCaseData<T> {
 		out.push(covid::FieldDescriptor::new(self.deaths.d1.clone(), "deaths_ref_d1"));
 		out.push(covid::FieldDescriptor::new(self.deaths.d7.clone(), "deaths_ref_d7"));
 		out.push(covid::FieldDescriptor::new(self.deaths.d7s7.clone(), "deaths_ref_d7s7"));
-		out.push(covid::FieldDescriptor::new(self.deaths_by_pub.cum.clone(), "deaths_pub_cum"));
 		out.push(covid::FieldDescriptor::new(self.deaths_by_pub.d1.clone(), "deaths_pub_d1"));
 		out.push(covid::FieldDescriptor::new(self.deaths_by_pub.d7.clone(), "deaths_pub_d7"));
 		out.push(covid::FieldDescriptor::new(self.deaths_by_pub.d7s7.clone(), "deaths_pub_d7s7"));
@@ -206,7 +204,6 @@ impl<T: TimeSeriesKey + 'static> CookedCaseData<T> {
 		out.push(covid::FieldDescriptor::new(self.recovered.d1.clone(), "recovered_ref_d1"));
 		out.push(covid::FieldDescriptor::new(self.recovered.d7.clone(), "recovered_ref_d7"));
 		out.push(covid::FieldDescriptor::new(self.recovered.d7s7.clone(), "recovered_ref_d7s7"));
-		out.push(covid::FieldDescriptor::new(self.recovered_by_pub.cum.clone(), "recovered_pub_cum"));
 		out.push(covid::FieldDescriptor::new(self.recovered_by_pub.d1.clone(), "recovered_pub_d1"));
 		out.push(covid::FieldDescriptor::new(self.recovered_by_pub.d7.clone(), "recovered_pub_d7"));
 		out.push(covid::FieldDescriptor::new(self.recovered_by_pub.d7s7.clone(), "recovered_pub_d7s7"));
