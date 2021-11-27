@@ -459,7 +459,7 @@ impl<T: TimeSeriesKey> CounterGroup<T> {
 			cum: cum.clone(),
 			d1: Arc::new(Diff::padded(cum.clone(), 1, 0.)),
 			d7: d7.clone(),
-			d7s7: Arc::new(TimeMap::shift(d7.clone(), 7)),
+			d7s7: Arc::new(TimeMap::shift(d7.clone(), -7)),
 		}
 	}
 
