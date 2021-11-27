@@ -598,6 +598,7 @@ fn remap_berlin(id: DistrictId) -> DistrictId {
 fn load_cooked_case_data(
 	districts: &HashMap<DistrictId, Arc<covid::DistrictInfo>>,
 	start: NaiveDate,
+	diffstart: NaiveDate,
 	end: NaiveDate,
 	casefile: &str,
 	difffile: &str,
@@ -612,7 +613,7 @@ fn load_cooked_case_data(
 	};
 
 	let diff_cases = {
-		let mut diff_cases = ParboiledCaseData::new(start, end);
+		let mut diff_cases = ParboiledCaseData::new(diffstart, end);
 		println!("loading diff data ...");
 		load_diff_data(&mut *covid::default_output(), difffile, &districts, &mut diff_cases)?;
 		diff_cases.remapped(|(state_id, district_id, mag, sex)| {
@@ -676,6 +677,7 @@ fn load_all_data(
 	states: &HashMap<DistrictId, Arc<covid::StateInfo>>,
 	districts: &mut HashMap<DistrictId, Arc<covid::DistrictInfo>>,
 	start: NaiveDate,
+	diffstart: NaiveDate,
 	end: NaiveDate,
 	casefile: &str,
 	difffile: &str,
@@ -689,6 +691,9 @@ fn load_all_data(
 	CookedHospitalizationData<(StateId, AgeGroup)>,
 	CookedICULoadData<GeoCaseKey>,
 ), io::Error> {
+	assert!(diffstart >= start);
+	assert!(end >= diffstart);
+
 	println!("loading population data ...");
 	let mut population = covid::Counters::<(StateId, DistrictId)>::new(start, end);
 	for district in districts.values() {
@@ -705,6 +710,7 @@ fn load_all_data(
 	let cooked_cases = load_cooked_case_data(
 		districts,
 		start,
+		diffstart,
 		end,
 		casefile,
 		difffile,
@@ -741,21 +747,24 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 	let casefile = &argv[1];
 	let districts = &argv[2];
 	let difffile = &argv[3];
-	let divifile = &argv[4];
-	let vaccfile = &argv[5];
-	let hospfile = &argv[6];
+	let diffstart = &argv[4];
+	let divifile = &argv[5];
+	let vaccfile = &argv[6];
+	let hospfile = &argv[7];
 
 	let (states, mut districts) = {
 		let mut r = std::fs::File::open(districts)?;
 		covid::load_rki_districts(&mut r)?
 	};
 	let start = global_start_date();
+	let diffstart = diffstart.parse::<NaiveDate>()?;
 	let end = naive_today();
 
 	let (population, cases, vacc, hosp, icu_load) = load_all_data(
 		&states,
 		&mut districts,
 		start,
+		diffstart,
 		end,
 		casefile,
 		difffile,
