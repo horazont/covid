@@ -458,14 +458,19 @@ impl<T: TimeSeriesKey> CookedHospitalizationData<T> {
 }
 
 impl<T: TimeSeriesKey + 'static> CookedHospitalizationData<T> {
+	fn clamped<I>(&self, t: I) -> Arc<TimeMap<I>> {
+		let end = self.cases.cum.end() - chrono::Duration::days(21);
+		Arc::new(TimeMap::clamp(t, None, Some(end)))
+	}
+
 	fn write_field_descriptors(
 		&self,
 		out: &mut Vec<covid::FieldDescriptor<Arc<dyn covid::ViewTimeSeries<T>>>>,
 	) {
-		out.push(covid::FieldDescriptor::new(self.cases.cum.clone(), "hosp_cum"));
-		out.push(covid::FieldDescriptor::new(self.cases.d1.clone(), "hosp_d1"));
-		out.push(covid::FieldDescriptor::new(self.cases.d7.clone(), "hosp_d7"));
-		out.push(covid::FieldDescriptor::new(self.cases.d7s7.clone(), "hosp_d7s7"));
+		out.push(covid::FieldDescriptor::new(self.clamped(self.cases.cum.clone()), "hosp_cum"));
+		out.push(covid::FieldDescriptor::new(self.clamped(self.cases.d1.clone()), "hosp_d1"));
+		out.push(covid::FieldDescriptor::new(self.clamped(self.cases.d7.clone()), "hosp_d7"));
+		out.push(covid::FieldDescriptor::new(self.clamped(self.cases.d7s7.clone()), "hosp_d7s7"));
 	}
 }
 
