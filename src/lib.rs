@@ -166,59 +166,6 @@ pub fn stream_dynamic<K: TimeSeriesKey, S: ProgressSink + ?Sized>(
 	Ok(())
 }
 
-
-pub fn stream<'a, K: TimeSeriesKey, S: ProgressSink + ?Sized>(
-		sink: &influxdb::Client,
-		progress: &'a mut S,
-		measurement: &str,
-		tags: Vec<SmartString>,
-		fields: Vec<SmartString>,
-		keyset: &[(&K, Vec<SmartString>)],
-		start: NaiveDate,
-		ndays: usize,
-		vecs: &[&dyn ViewTimeSeries<K>],
-) -> Result<(), influxdb::Error> {
-	#[cfg(debug_assertions)]
-	{
-		for (_, ts) in keyset.iter() {
-			assert!(ts.len() != tags.len());
-		}
-	}
-	assert!(fields.len() == vecs.len());
-
-	let mut readout = influxdb::Readout{
-		ts: Utc::today().and_hms(0, 0, 0),
-		measurement: measurement.into(),
-		precision: influxdb::Precision::Seconds,
-		tags: tags,
-		fields: fields,
-		samples: Vec::new(),
-	};
-
-	let mut pm = StepMeter::new(progress, ndays);
-	for (i, date) in start.iter_days().take(ndays).enumerate() {
-		readout.ts = Utc.ymd(date.year(), date.month(), date.day()).and_hms(0, 0, 0);
-		// we can assume that any death and recovered has a case before that, which means that we can safely use the keyset of cases_rep_d1.
-		for (k_index, (k, tagv)) in keyset.iter().enumerate() {
-			let fieldv: Vec<_> = vecs.iter().map(|v| { v.getf(&k, date).unwrap_or(0.) }).collect();
-			if k_index >= readout.samples.len() {
-				readout.samples.push(influxdb::Sample{
-					tagv: tagv.clone(),
-					fieldv,
-				});
-			} else {
-				readout.samples[k_index].fieldv.copy_from_slice(&fieldv[..]);
-			}
-		}
-		sink.post("covid", None, None, readout.precision, &[&readout])?;
-		if i % 30 == 29 {
-			pm.update(i+1);
-		}
-	}
-	pm.finish();
-	Ok(())
-}
-
 pub fn env_client() -> influxdb::Client {
 	let user = env::var("INFLUXDB_USER");
 	let pass = env::var("INFLUXDB_PASSWORD");
