@@ -8,12 +8,13 @@ use chrono::NaiveDate;
 use csv;
 
 use covid;
-use covid::{StateId, DistrictId, DistrictInfo, InfectionRecord, Counters, FullCaseKey, CountMeter, global_start_date, naive_today, DiffRecord, CounterGroup, GeoCaseKey, ProgressSink, ICULoadRecord, VaccinationKey, VaccinationRecord, VaccinationLevel, HospitalizationRecord, AgeGroup, TimeSeriesKey, Diff, ViewTimeSeries, Filled};
+use covid::{StateId, DistrictId, DistrictInfo, InfectionRecord, Counters, FullCaseKey, CountMeter, global_start_date, naive_today, DiffRecord, CounterGroup, GeoCaseKey, ProgressSink, ICULoadRecord, VaccinationKey, VaccinationRecord, VaccinationLevel, HospitalizationRecord, AgeGroup, TimeSeriesKey, Diff, ViewTimeSeries, Filled, RawDestatisRow};
 
 
 static GEO_MEASUREMENT_NAME: &'static str = "data_v2_geo";
 static GEO_LIGHT_MEASUREMENT_NAME: &'static str = "data_v2_geo_light";
 static DEMO_MEASUREMENT_NAME: &'static str = "data_v2_demo";
+static VACC_MEASUREMENT_NAME: &'static str = "data_v2_vacc";
 // static DEMO_LIGHT_MEASUREMENT_NAME: &'static str = "data_v2_demo_light";
 
 
@@ -478,10 +479,17 @@ impl<T: TimeSeriesKey> RawPopulationData<T> {
 		Self{count: Counters::new(ref_date, ref_date + chrono::Duration::days(1))}
 	}
 
-	pub fn rekeyed<U: TimeSeriesKey, F: Fn(&T) -> Option<U>>(&self, f: F) -> RawPopulationData<U> {
+	pub fn remapped<U: TimeSeriesKey, F: Fn(&T) -> Option<U>>(&self, f: F) -> RawPopulationData<U> {
 		RawPopulationData::<U>{
 			count: self.count.rekeyed(&f),
 		}
+	}
+}
+
+impl RawPopulationData<(StateId, AgeGroup)> {
+	pub fn submit(&mut self, rec: RawDestatisRow) {
+		let k = (rec.state_id, rec.age_group);
+		self.count.get_or_create(k)[0] += rec.count;
 	}
 }
 
@@ -642,6 +650,32 @@ fn load_hosp_data<'s, P: AsRef<Path>, S: ProgressSink + ?Sized>(
 }
 
 
+fn load_destatis_data<'s, P: AsRef<Path>, S: ProgressSink + ?Sized>(
+		s: &'s mut S,
+		p: P,
+		data: &mut RawPopulationData<(StateId, AgeGroup)>,
+) -> io::Result<()> {
+	let r = covid::magic_open(p)?;
+	let mut r = csv::Reader::from_reader(r);
+	let mut pm = CountMeter::new(s);
+	let mut n = 0;
+	for (i, row) in r.deserialize().enumerate() {
+		let rec: RawDestatisRow = match row {
+			Ok(v) => v,
+			// for some reason, they have NA in some cells?!
+			Err(_) => continue,
+		};
+		data.submit(rec);
+		if i % 100 == 99 {
+			pm.update(i+1);
+		}
+		n = i+1;
+	}
+	pm.finish(n);
+	Ok(())
+}
+
+
 fn remap_berlin(id: DistrictId) -> DistrictId {
 	if id >= 11000 && id < 12000 {
 		11000
@@ -729,6 +763,20 @@ fn load_cooked_vacc_data(
 }
 
 
+fn load_cooked_population_data<F: Fn(&AgeGroup) -> AgeGroup>(
+	destatisfile: &str,
+	f: F,
+) -> Result<CookedPopulationData<(StateId, AgeGroup)>, io::Error> {
+	let mut population = RawPopulationData::new();
+	println!("loading destatis population data ...");
+	load_destatis_data(&mut *covid::default_output(), destatisfile, &mut population)?;
+	let population = population.remapped(|(state_id, ag)| {
+		Some((*state_id, f(ag)))
+	});
+	Ok(CookedPopulationData::cook(population))
+}
+
+
 fn load_all_data(
 	states: &HashMap<DistrictId, Arc<covid::StateInfo>>,
 	districts: &mut HashMap<DistrictId, Arc<covid::DistrictInfo>>,
@@ -740,8 +788,10 @@ fn load_all_data(
 	divifile: &str,
 	vaccfile: &str,
 	hospfile: &str,
+	destatisfile: &str,
 ) -> Result<(
 	CookedPopulationData<GeoCaseKey>,
+	CookedPopulationData<(StateId, AgeGroup)>,
 	CookedCaseData<FullCaseKey>,
 	CookedVaccinationData<VaccinationKey>,
 	CookedHospitalizationData<(StateId, AgeGroup)>,
@@ -757,13 +807,32 @@ fn load_all_data(
 		population.count.get_or_create(k).fill(district.population);
 	}
 	let cooked_population = CookedPopulationData::cook(
-		population.rekeyed(|(state_id, district_id)| {
+		population.remapped(|(state_id, district_id)| {
 			Some((*state_id, remap_berlin(*district_id)))
 		})
 	);
 
 	// We inject berlin only later. This allows us to rekey the population above to eliminate the separate berlin districts.
 	covid::inject_berlin(states, districts);
+
+	let cooked_vacc_population = load_cooked_population_data(
+		destatisfile,
+		|ag| {
+			assert!(ag.high.is_none() || ag.low == ag.high.unwrap());
+			let age = ag.low;
+			if age < 5 {
+				AgeGroup{low: 0, high: Some(4)}
+			} else if age < 12 {
+				AgeGroup{low: 5, high: Some(11)}
+			} else if age < 18 {
+				AgeGroup{low: 12, high: Some(17)}
+			} else if age < 60 {
+				AgeGroup{low: 18, high: Some(59)}
+			} else {
+				AgeGroup{low: 60, high: None}
+			}
+		},
+	)?;
 
 	let cooked_cases = load_cooked_case_data(
 		districts,
@@ -792,6 +861,7 @@ fn load_all_data(
 
 	Ok((
 		cooked_population,
+		cooked_vacc_population,
 		cooked_cases,
 		cooked_vacc,
 		cooked_hosp,
@@ -809,6 +879,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 	let divifile = &argv[5];
 	let vaccfile = &argv[6];
 	let hospfile = &argv[7];
+	let destatisfile = &argv[8];
 
 	let (states, mut districts) = {
 		let mut r = std::fs::File::open(districts)?;
@@ -818,7 +889,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 	let diffstart = diffstart.parse::<NaiveDate>()?;
 	let end = naive_today();
 
-	let (population, cases, vacc, hosp, icu_load) = load_all_data(
+	let (population, population_vacc, cases, vacc, hosp, icu_load) = load_all_data(
 		&states,
 		&mut districts,
 		start,
@@ -829,6 +900,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 		divifile,
 		vaccfile,
 		hospfile,
+		destatisfile,
 	)?;
 
 	let client = covid::env_client();
@@ -971,6 +1043,47 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 			&client,
 			&mut *covid::default_output(),
 			DEMO_MEASUREMENT_NAME,
+			start,
+			(end - start).num_days() as usize,
+			&keys,
+			&fields[..],
+		)?;
+	}
+
+	{
+		println!("preparing {} ...", VACC_MEASUREMENT_NAME);
+
+		let vacc = vacc.rekeyed(|(state_id, _, ag)| {
+			// drop vaccinations without properly defined state + district
+			match (state_id, **ag) {
+				(Some(state_id), Some(ag)) => Some((*state_id, ag)),
+				_ => None,
+			}
+		});
+		let keys: Vec<_> = covid::prepare_keyset(
+			&[
+				"state",
+				"age",
+			][..],
+			population_vacc.count.keys(),
+			|k, out| {
+				let state_id = k.0;
+				let state_name = &states.get(&state_id).unwrap().name;
+				out.push(state_name.into());
+				out.push(k.1.to_string().into());
+			},
+		);
+
+		println!("streaming {} ...", VACC_MEASUREMENT_NAME);
+
+		let mut fields = Vec::new();
+		vacc.write_field_descriptors(&mut fields);
+		population_vacc.write_field_descriptors(&mut fields);
+
+		covid::stream_dynamic(
+			&client,
+			&mut *covid::default_output(),
+			VACC_MEASUREMENT_NAME,
 			start,
 			(end - start).num_days() as usize,
 			&keys,

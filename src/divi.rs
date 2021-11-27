@@ -2,7 +2,7 @@ use serde::{Deserialize};
 
 use chrono::naive::NaiveDate;
 
-use super::rki::{StateId, DistrictId};
+use super::context::{StateId, DistrictId};
 
 
 #[derive(Debug, Clone, Deserialize)]

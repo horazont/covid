@@ -10,15 +10,19 @@ use smartstring::alias::{String as SmartString};
 
 pub mod influxdb;
 mod ioutil;
+mod context;
+mod destatis;
 mod rki;
 mod progress;
 mod divi;
 mod timeseries;
 
 pub use ioutil::magic_open;
+pub use context::*;
 pub use rki::*;
 pub use progress::*;
 pub use divi::*;
+pub use destatis::*;
 pub use timeseries::*;
 
 
