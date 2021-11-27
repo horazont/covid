@@ -595,21 +595,100 @@ fn remap_berlin(id: DistrictId) -> DistrictId {
 }
 
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
-	let argv: Vec<String> = std::env::args().collect();
-	let casefile = &argv[1];
-	let districts = &argv[2];
-	let difffile = &argv[3];
-	let divifile = &argv[4];
-	let vaccfile = &argv[5];
-	let hospfile = &argv[6];
-	let (states, mut districts) = {
-		let mut r = std::fs::File::open(districts)?;
-		covid::load_rki_districts(&mut r)?
+fn load_cooked_case_data(
+	districts: &HashMap<DistrictId, Arc<covid::DistrictInfo>>,
+	start: NaiveDate,
+	end: NaiveDate,
+	casefile: &str,
+	difffile: &str,
+) -> Result<CookedCaseData<FullCaseKey>, io::Error> {
+	let cases = {
+		let mut cases = RawCaseData::new(start, end);
+		println!("loading case data ...");
+		load_case_data(&mut *covid::default_output(), casefile, &districts, &mut cases)?;
+		cases.remapped(|(state_id, district_id, mag, sex)| {
+			Some((*state_id, remap_berlin(*district_id), *mag, *sex))
+		})
 	};
-	let start = global_start_date();
-	let end = naive_today();
 
+	let diff_cases = {
+		let mut diff_cases = ParboiledCaseData::new(start, end);
+		println!("loading diff data ...");
+		load_diff_data(&mut *covid::default_output(), difffile, &districts, &mut diff_cases)?;
+		diff_cases.remapped(|(state_id, district_id, mag, sex)| {
+			Some((*state_id, remap_berlin(*district_id), *mag, *sex))
+		})
+	};
+
+	println!("crunching case data...");
+	let cooked_cases = CookedCaseData::cook(cases, diff_cases);
+
+	Ok(cooked_cases)
+}
+
+
+fn load_cooked_hosp_data(
+	start: NaiveDate,
+	end: NaiveDate,
+	hospfile: &str,
+) -> Result<CookedHospitalizationData<(StateId, AgeGroup)>, io::Error> {
+	let mut hosp = RawHospitalizationData::new(start, end);
+	println!("loading hospitalization data ...");
+	load_hosp_data(&mut *covid::default_output(), hospfile, &mut hosp)?;
+	let cooked_hosp = CookedHospitalizationData::cook(hosp);
+
+	Ok(cooked_hosp)
+}
+
+
+fn load_cooked_divi_data(
+	start: NaiveDate,
+	end: NaiveDate,
+	divifile: &str,
+) -> Result<CookedICULoadData<GeoCaseKey>, io::Error> {
+	let mut icu_load = RawICULoadData::new(start, end);
+	println!("loading ICU data ...");
+	load_divi_load_data(&mut *covid::default_output(), divifile, &mut icu_load)?;
+	let icu_load = icu_load.rekeyed(|(state_id, district_id)| {
+		Some((*state_id, remap_berlin(*district_id)))
+	});
+	Ok(CookedICULoadData::cook(icu_load))
+}
+
+
+fn load_cooked_vacc_data(
+	districts: &HashMap<DistrictId, Arc<covid::DistrictInfo>>,
+	start: NaiveDate,
+	end: NaiveDate,
+	vaccfile: &str,
+) -> Result<CookedVaccinationData<VaccinationKey>, io::Error> {
+	let mut vacc = RawVaccinationData::new(start, end);
+	println!("loading vaccination data ...");
+	load_vacc_data(&mut *covid::default_output(), vaccfile, &districts, &mut vacc)?;
+	let vacc = vacc.remapped(|(state_id, district_id, ag)| {
+		Some((*state_id, district_id.map(remap_berlin), *ag))
+	});
+	Ok(CookedVaccinationData::cook(vacc))
+}
+
+
+fn load_all_data(
+	states: &HashMap<DistrictId, Arc<covid::StateInfo>>,
+	districts: &mut HashMap<DistrictId, Arc<covid::DistrictInfo>>,
+	start: NaiveDate,
+	end: NaiveDate,
+	casefile: &str,
+	difffile: &str,
+	divifile: &str,
+	vaccfile: &str,
+	hospfile: &str,
+) -> Result<(
+	Arc<Counters<(StateId, DistrictId)>>,
+	CookedCaseData<FullCaseKey>,
+	CookedVaccinationData<VaccinationKey>,
+	CookedHospitalizationData<(StateId, AgeGroup)>,
+	CookedICULoadData<GeoCaseKey>,
+), io::Error> {
 	println!("loading population data ...");
 	let mut population = covid::Counters::<(StateId, DistrictId)>::new(start, end);
 	for district in districts.values() {
@@ -621,45 +700,69 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 	}));
 
 	// We inject berlin only later. This allows us to rekey the population above to eliminate the separate berlin districts.
-	covid::inject_berlin(&states, &mut districts);
+	covid::inject_berlin(states, districts);
 
-	let mut cases = RawCaseData::new(start, end);
-	println!("loading case data ...");
-	load_case_data(&mut *covid::default_output(), casefile, &districts, &mut cases)?;
-	let cases = cases.remapped(|(state_id, district_id, mag, sex)| {
-		Some((*state_id, remap_berlin(*district_id), *mag, *sex))
-	});
+	let cooked_cases = load_cooked_case_data(
+		districts,
+		start,
+		end,
+		casefile,
+		difffile,
+	)?;
+	let cooked_vacc = load_cooked_vacc_data(
+		districts,
+		start,
+		end,
+		vaccfile,
+	)?;
+	let cooked_icu_load = load_cooked_divi_data(
+		start,
+		end,
+		divifile,
+	)?;
+	let cooked_hosp = load_cooked_hosp_data(
+		start,
+		end,
+		hospfile,
+	)?;
 
-	let mut diff_cases = ParboiledCaseData::new(start, end);
-	println!("loading diff data ...");
-	load_diff_data(&mut *covid::default_output(), difffile, &districts, &mut diff_cases)?;
-	let diff_cases = diff_cases.remapped(|(state_id, district_id, mag, sex)| {
-		Some((*state_id, remap_berlin(*district_id), *mag, *sex))
-	});
+	Ok((
+		population,
+		cooked_cases,
+		cooked_vacc,
+		cooked_hosp,
+		cooked_icu_load,
+	))
+}
 
-	let mut icu_load = RawICULoadData::new(start, end);
-	println!("loading ICU data ...");
-	load_divi_load_data(&mut *covid::default_output(), divifile, &mut icu_load)?;
-	let icu_load = icu_load.rekeyed(|(state_id, district_id)| {
-		Some((*state_id, remap_berlin(*district_id)))
-	});
 
-	let mut vacc = RawVaccinationData::new(start, end);
-	println!("loading vaccination data ...");
-	load_vacc_data(&mut *covid::default_output(), vaccfile, &districts, &mut vacc)?;
-	let vacc = vacc.remapped(|(state_id, district_id, ag)| {
-		Some((*state_id, district_id.map(remap_berlin), *ag))
-	});
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+	let argv: Vec<String> = std::env::args().collect();
+	let casefile = &argv[1];
+	let districts = &argv[2];
+	let difffile = &argv[3];
+	let divifile = &argv[4];
+	let vaccfile = &argv[5];
+	let hospfile = &argv[6];
 
-	let mut hosp = RawHospitalizationData::new(start, end);
-	println!("loading hospitalization data ...");
-	load_hosp_data(&mut *covid::default_output(), hospfile, &mut hosp)?;
+	let (states, mut districts) = {
+		let mut r = std::fs::File::open(districts)?;
+		covid::load_rki_districts(&mut r)?
+	};
+	let start = global_start_date();
+	let end = naive_today();
 
-	println!("crunching ...");
-	let cases = CookedCaseData::cook(cases, diff_cases);
-	let vacc = CookedVaccinationData::cook(vacc);
-	let hosp = CookedHospitalizationData::cook(hosp);
-	let icu_load = CookedICULoadData::cook(icu_load);
+	let (population, cases, vacc, hosp, icu_load) = load_all_data(
+		&states,
+		&mut districts,
+		start,
+		end,
+		casefile,
+		difffile,
+		divifile,
+		vaccfile,
+		hospfile,
+	)?;
 
 	let client = covid::env_client();
 
