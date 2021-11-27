@@ -1,14 +1,15 @@
 use std::collections::HashMap;
 use std::convert::TryInto;
 use std::hash::Hash;
+use std::sync::Arc;
 
 use num_traits::Zero;
 
 use chrono::NaiveDate;
 
 
-pub trait TimeSeriesKey: Hash + Eq + Clone + std::fmt::Debug {}
-impl<T: Hash + Eq + Clone + std::fmt::Debug> TimeSeriesKey for T {}
+pub trait TimeSeriesKey: Hash + Eq + Clone + std::fmt::Debug + 'static {}
+impl<T: Hash + Eq + Clone + std::fmt::Debug + 'static> TimeSeriesKey for T {}
 
 
 #[derive(Debug, Clone)]
@@ -255,6 +256,120 @@ impl<T: TimeSeriesKey> TimeSeries<T, u64> {
 }
 
 
+pub trait ViewTimeSeries<T: TimeSeriesKey> {
+	fn getf(&self, k: &T, at: NaiveDate) -> Option<f64>;
+}
+
+
+impl<T: TimeSeriesKey> ViewTimeSeries<T> for TimeSeries<T, u64> {
+	fn getf(&self, k: &T, at: NaiveDate) -> Option<f64> {
+		let i = self.date_index(at)?;
+		Some(self.get_value(k, i).unwrap_or(0) as f64)
+	}
+}
+
+
+impl<T: TimeSeriesKey> ViewTimeSeries<T> for TimeSeries<T, i64> {
+	fn getf(&self, k: &T, at: NaiveDate) -> Option<f64> {
+		let i = self.date_index(at)?;
+		Some(self.get_value(k, i).unwrap_or(0) as f64)
+	}
+}
+
+
+impl<T: TimeSeriesKey> ViewTimeSeries<T> for TimeSeries<T, f64> {
+	fn getf(&self, k: &T, at: NaiveDate) -> Option<f64> {
+		let i = self.date_index(at)?;
+		Some(self.get_value(k, i).unwrap_or(0.))
+	}
+}
+
+pub struct TimeMap<I> {
+	inner: I,
+	by: i64,
+	range: Option<(NaiveDate, NaiveDate)>,
+	pad: Option<f64>,
+}
+
+impl<I> TimeMap<I> {
+	pub fn shift(inner: I, by: i64) -> Self {
+		Self{
+			inner,
+			by,
+			range: None,
+			pad: None,
+		}
+	}
+}
+
+impl<K: TimeSeriesKey, I: ViewTimeSeries<K>> ViewTimeSeries<K> for TimeMap<I> {
+	fn getf(&self, k: &K, at: NaiveDate) -> Option<f64> {
+		match self.range {
+			Some((start, end)) => if (at < start) || (at >= end) {
+				return None
+			},
+			None => (),
+		};
+		let at = at + chrono::Duration::days(self.by);
+		self.inner.getf(k, at).or(self.pad)
+	}
+}
+
+pub struct Diff<I> {
+	inner: I,
+	window: u32,
+	pad: Option<f64>,
+}
+
+impl<I> Diff<I> {
+	pub fn padded(inner: I, window: u32, pad: f64) -> Self {
+		Self{inner, window, pad: Some(pad)}
+	}
+}
+
+impl<K: TimeSeriesKey, I: ViewTimeSeries<K>> ViewTimeSeries<K> for Diff<I> {
+	fn getf(&self, k: &K, at: NaiveDate) -> Option<f64> {
+		let vr = self.inner.getf(k, at)?;
+		let vl = self.inner.getf(k, at - chrono::Duration::days(self.window as i64)).or(self.pad)?;
+		Some(vr - vl)
+	}
+}
+
+pub struct MovingSum<I> {
+	inner: I,
+	window: u32,
+}
+
+impl<I> MovingSum<I> {
+	pub fn new(inner: I, window: u32) -> Self {
+		Self{inner, window}
+	}
+}
+
+impl<K: TimeSeriesKey, I: ViewTimeSeries<K>> ViewTimeSeries<K> for MovingSum<I> {
+	fn getf(&self, k: &K, at: NaiveDate) -> Option<f64> {
+		let mut accum = self.inner.getf(k, at)?;
+		for i in (1..self.window).rev() {
+			accum += self.inner.getf(k, at - chrono::Duration::days(i as i64)).unwrap_or(0.)
+		}
+		Some(accum)
+	}
+}
+
+impl<K: TimeSeriesKey, T: ViewTimeSeries<K>> ViewTimeSeries<K> for &T {
+	fn getf(&self, k: &K, at: NaiveDate) -> Option<f64> {
+		(**self).getf(k, at)
+	}
+}
+
+impl<K: TimeSeriesKey, T: ViewTimeSeries<K>> ViewTimeSeries<K> for Arc<T> {
+	fn getf(&self, k: &K, at: NaiveDate) -> Option<f64> {
+		(**self).getf(k, at)
+	}
+}
+
+
+
 #[macro_export]
 macro_rules! joined_keyset_ref {
 	($t:ty, $($b:expr),*) => {
@@ -292,91 +407,53 @@ impl<T: TimeSeriesKey> From<TimeSeries<T, u64>> for TimeSeries<T, f64> {
 
 
 pub struct CounterGroup<T: TimeSeriesKey> {
-	pub cum: Counters<T>,
-	pub d1: Counters<T>,
-	pub d7: Counters<T>,
-	pub d7s7: Counters<T>,
+	pub cum: Arc<Counters<T>>,
+	pub d1: Arc<Diff<Arc<Counters<T>>>>,
+	pub d7: Arc<Diff<Arc<Counters<T>>>>,
+	pub d7s7: Arc<TimeMap<Arc<Diff<Arc<Counters<T>>>>>>,
 }
 
 impl<T: TimeSeriesKey> CounterGroup<T> {
+	pub fn from_cum(cum: Counters<T>) -> Self {
+		let cum = Arc::new(cum);
+		let d7 = Arc::new(Diff::padded(cum.clone(), 7, 0.));
+		Self{
+			cum: cum.clone(),
+			d1: Arc::new(Diff::padded(cum.clone(), 1, 0.)),
+			d7: d7.clone(),
+			d7s7: Arc::new(TimeMap::shift(d7.clone(), 7)),
+		}
+	}
+
 	pub fn from_d1(d1: Counters<T>) -> Self {
 		let mut cum = d1.clone();
 		cum.cumsum();
-		let mut d7 = cum.clone();
-		d7.diff(7);
-		let mut d7s7 = d7.clone();
-		d7s7.shift_fwd(7);
-		Self{
-			cum,
-			d1,
-			d7,
-			d7s7,
-		}
+		Self::from_cum(cum)
 	}
 
 	pub fn from_d7(d7: Counters<T>) -> Self {
 		let d1 = d7.unrolled(7);
-		let mut cum = d1.clone();
-		cum.cumsum();
-		let mut d7s7 = d7.clone();
-		d7s7.shift_fwd(7);
-		Self{
-			cum,
-			d1,
-			d7,
-			d7s7,
-		}
+		Self::from_d1(d1)
 	}
 
 	pub fn rekeyed<U: TimeSeriesKey, F: Fn(&T) -> Option<U>>(&self, f: F) -> CounterGroup<U> {
-		CounterGroup::<U>{
-			cum: self.cum.rekeyed(&f),
-			d1: self.d1.rekeyed(&f),
-			d7: self.d7.rekeyed(&f),
-			d7s7: self.d7s7.rekeyed(&f),
-		}
+		CounterGroup::<U>::from_cum(self.cum.rekeyed(&f))
 	}
 
-	pub fn synthesize(&mut self, kin: &[&T], kout: T) {
-		self.cum.synthesize(kin, kout.clone());
-		self.d1.synthesize(kin, kout.clone());
-		self.d7.synthesize(kin, kout.clone());
-		self.d7s7.synthesize(kin, kout);
+	pub fn cum(&self) -> Arc<dyn ViewTimeSeries<T>> {
+		self.cum.clone() as _
 	}
 
-	pub fn cum(&self) -> &Counters<T> {
-		&self.cum
+	pub fn d1(&self) -> Arc<dyn ViewTimeSeries<T>> {
+		self.d1.clone() as _
 	}
 
-	pub fn d1(&self) -> &Counters<T> {
-		&self.d1
+	pub fn d7(&self) -> Arc<dyn ViewTimeSeries<T>> {
+		self.d7.clone() as _
 	}
 
-	pub fn d7(&self) -> &Counters<T> {
-		&self.d7
-	}
-
-	pub fn d7s7(&self) -> &Counters<T> {
-		&self.d7s7
-	}
-}
-
-
-pub struct SubmittableCounterGroup<T: TimeSeriesKey> {
-	pub cum: Submittable<T>,
-	pub d1: Submittable<T>,
-	pub d7: Submittable<T>,
-	pub d7s7: Submittable<T>,
-}
-
-impl<T: TimeSeriesKey> From<CounterGroup<T>> for SubmittableCounterGroup<T> {
-	fn from(other: CounterGroup<T>) -> SubmittableCounterGroup<T> {
-		Self{
-			cum: other.cum.into(),
-			d1: other.d1.into(),
-			d7: other.d7.into(),
-			d7s7: other.d7s7.into(),
-		}
+	pub fn d7s7(&self) -> Arc<dyn ViewTimeSeries<T>> {
+		self.d7s7.clone() as _
 	}
 }
 
@@ -384,4 +461,3 @@ impl<T: TimeSeriesKey> From<CounterGroup<T>> for SubmittableCounterGroup<T> {
 pub type Counters<T> = TimeSeries<T, u64>;
 pub type IGauge<T> = TimeSeries<T, u64>;
 pub type FGauge<T> = TimeSeries<T, f64>;
-pub type Submittable<T> = TimeSeries<T, f64>;

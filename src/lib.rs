@@ -1,5 +1,6 @@
 use std::env;
 use std::io::Write;
+use std::sync::Arc;
 
 use chrono::{NaiveDate, Utc, TimeZone, Datelike};
 
@@ -30,121 +31,14 @@ pub fn global_start_date() -> NaiveDate {
 }
 
 
-pub trait ViewTimeSeries<T: TimeSeriesKey> {
-	fn getf(&self, k: &T, at: NaiveDate) -> Option<f64>;
-}
-
-
-impl<T: TimeSeriesKey> ViewTimeSeries<T> for TimeSeries<T, u64> {
-	fn getf(&self, k: &T, at: NaiveDate) -> Option<f64> {
-		let i = self.date_index(at)?;
-		Some(self.get_value(k, i).unwrap_or(0) as f64)
-	}
-}
-
-
-impl<T: TimeSeriesKey> ViewTimeSeries<T> for TimeSeries<T, i64> {
-	fn getf(&self, k: &T, at: NaiveDate) -> Option<f64> {
-		let i = self.date_index(at)?;
-		Some(self.get_value(k, i).unwrap_or(0) as f64)
-	}
-}
-
-
-impl<T: TimeSeriesKey> ViewTimeSeries<T> for TimeSeries<T, f64> {
-	fn getf(&self, k: &T, at: NaiveDate) -> Option<f64> {
-		let i = self.date_index(at)?;
-		Some(self.get_value(k, i).unwrap_or(0.))
-	}
-}
-
-pub struct TimeMap<I> {
-	inner: I,
-	by: i64,
-	range: Option<(NaiveDate, NaiveDate)>,
-	pad: Option<f64>,
-}
-
-impl<I> TimeMap<I> {
-	pub fn shift(inner: I, by: i64) -> Self {
-		Self{
-			inner,
-			by,
-			range: None,
-			pad: None,
-		}
-	}
-}
-
-impl<K: TimeSeriesKey, I: ViewTimeSeries<K>> ViewTimeSeries<K> for TimeMap<I> {
-	fn getf(&self, k: &K, at: NaiveDate) -> Option<f64> {
-		match self.range {
-			Some((start, end)) => if (at < start) || (at >= end) {
-				return None
-			},
-			None => (),
-		};
-		let at = at + chrono::Duration::days(self.by);
-		self.inner.getf(k, at).or(self.pad)
-	}
-}
-
-pub struct Diff<I> {
-	inner: I,
-	window: u32,
-	pad: Option<f64>,
-}
-
-impl<I> Diff<I> {
-	pub fn padded(inner: I, window: u32, pad: f64) -> Self {
-		Self{inner, window, pad: Some(pad)}
-	}
-}
-
-impl<K: TimeSeriesKey, I: ViewTimeSeries<K>> ViewTimeSeries<K> for Diff<I> {
-	fn getf(&self, k: &K, at: NaiveDate) -> Option<f64> {
-		let vr = self.inner.getf(k, at)?;
-		let vl = self.inner.getf(k, at - chrono::Duration::days(self.window as i64)).or(self.pad)?;
-		Some(vr - vl)
-	}
-}
-
-pub struct MovingSum<I> {
-	inner: I,
-	window: u32,
-}
-
-impl<I> MovingSum<I> {
-	pub fn new(inner: I, window: u32) -> Self {
-		Self{inner, window}
-	}
-}
-
-impl<K: TimeSeriesKey, I: ViewTimeSeries<K>> ViewTimeSeries<K> for MovingSum<I> {
-	fn getf(&self, k: &K, at: NaiveDate) -> Option<f64> {
-		let mut accum = self.inner.getf(k, at)?;
-		for i in (1..self.window).rev() {
-			accum += self.inner.getf(k, at - chrono::Duration::days(i as i64)).unwrap_or(0.)
-		}
-		Some(accum)
-	}
-}
-
-impl<K: TimeSeriesKey, T: ViewTimeSeries<K>> ViewTimeSeries<K> for &T {
-	fn getf(&self, k: &K, at: NaiveDate) -> Option<f64> {
-		(**self).getf(k, at)
-	}
-}
-
-
 #[derive(Debug, Clone)]
-pub struct FieldDescriptor<'x, I: ?Sized>{
+pub struct FieldDescriptor<T>{
 	name: &'static str,
-	inner: &'x I,
+	inner: T,
 }
 
-impl<'x, I: ?Sized> FieldDescriptor<'x, I> {
-	pub fn new(inner: &'x I, name: &'static str) -> Self {
+impl<T> FieldDescriptor<T> {
+	pub fn new(inner: T, name: &'static str) -> Self {
 		Self{inner, name}
 	}
 
@@ -152,8 +46,8 @@ impl<'x, I: ?Sized> FieldDescriptor<'x, I> {
 		&self.name
 	}
 
-	pub fn inner(&self) -> &'x I {
-		self.inner
+	pub fn inner(&self) -> &T {
+		&self.inner
 	}
 }
 
@@ -182,14 +76,14 @@ pub fn prepare_keyset<'x, K: TimeSeriesKey, I: Iterator<Item = &'x K>, F: Fn(&K,
 }
 
 
-pub fn stream_dynamic<K: TimeSeriesKey, V: ViewTimeSeries<K> + ?Sized, S: ProgressSink + ?Sized>(
+pub fn stream_dynamic<K: TimeSeriesKey, S: ProgressSink + ?Sized>(
 	sink: &influxdb::Client,
 	progress: &mut S,
 	measurement: &str,
 	start: NaiveDate,
 	ndays: usize,
 	keyset: &[(&K, Bytes)],
-	fields: &[FieldDescriptor<V>],
+	fields: &[FieldDescriptor<Arc<dyn ViewTimeSeries<K>>>],
 ) -> Result<(), influxdb::Error> {
 	#[cfg(debug_assertions)]
 	{

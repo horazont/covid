@@ -8,7 +8,7 @@ use chrono::NaiveDate;
 use csv;
 
 use covid;
-use covid::{StateId, DistrictId, DistrictInfo, InfectionRecord, Counters, FullCaseKey, CountMeter, global_start_date, naive_today, DiffRecord, CounterGroup, GeoCaseKey, ProgressSink, ICULoadRecord, VaccinationKey, VaccinationRecord, VaccinationLevel, HospitalizationRecord, AgeGroup, TimeSeriesKey};
+use covid::{StateId, DistrictId, DistrictInfo, InfectionRecord, Counters, FullCaseKey, CountMeter, global_start_date, naive_today, DiffRecord, CounterGroup, GeoCaseKey, ProgressSink, ICULoadRecord, VaccinationKey, VaccinationRecord, VaccinationLevel, HospitalizationRecord, AgeGroup, TimeSeriesKey, Diff, ViewTimeSeries};
 
 
 static GEO_MEASUREMENT_NAME: &'static str = "data_v2_geo";
@@ -172,69 +172,55 @@ impl<T: TimeSeriesKey> CookedCaseData<T> {
 			recovered_by_pub: self.recovered_by_pub.rekeyed(&f),
 		}
 	}
-
-	// We may at some point do something about berlin, see the XXX below.
-	#[allow(dead_code)]
-	pub fn synthesize<U: TimeSeriesKey>(&mut self, kin: &[&T], kout: T) {
-		self.cases_by_pub.synthesize(kin, kout.clone());
-		self.case_delay_total.synthesize(kin, kout.clone());
-		self.cases_by_ref.synthesize(kin, kout.clone());
-		self.cases_by_report.synthesize(kin, kout.clone());
-		self.deaths.synthesize(kin, kout.clone());
-		self.deaths_by_pub.synthesize(kin, kout.clone());
-		self.recovered.synthesize(kin, kout.clone());
-		self.recovered_by_pub.synthesize(kin, kout.clone());
-	}
 }
 
 impl<T: TimeSeriesKey + 'static> CookedCaseData<T> {
-	fn write_field_descriptors<'x>(
-		&'x self,
-		out: &mut Vec<covid::FieldDescriptor<'x, dyn covid::ViewTimeSeries<T>>>,
+	fn write_field_descriptors(
+		&self,
+		out: &mut Vec<covid::FieldDescriptor<Arc<dyn covid::ViewTimeSeries<T>>>>,
 	) {
-		out.push(covid::FieldDescriptor::new(&self.cases_by_pub.cum, "cases_pub_cum"));
-		out.push(covid::FieldDescriptor::new(&self.cases_by_pub.d1, "cases_pub_d1"));
-		out.push(covid::FieldDescriptor::new(&self.cases_by_pub.d7, "cases_pub_d7"));
-		out.push(covid::FieldDescriptor::new(&self.cases_by_pub.d7s7, "cases_pub_d7s7"));
-		out.push(covid::FieldDescriptor::new(&self.cases_by_ref.cum, "cases_ref_cum"));
-		out.push(covid::FieldDescriptor::new(&self.cases_by_ref.d1, "cases_ref_d1"));
-		out.push(covid::FieldDescriptor::new(&self.cases_by_ref.d7, "cases_ref_d7"));
-		out.push(covid::FieldDescriptor::new(&self.cases_by_ref.d7s7, "cases_ref_d7s7"));
-		out.push(covid::FieldDescriptor::new(&self.cases_by_report.cum, "cases_rep_cum"));
-		out.push(covid::FieldDescriptor::new(&self.cases_by_report.d1, "cases_rep_d1"));
-		out.push(covid::FieldDescriptor::new(&self.cases_by_report.d7, "cases_rep_d7"));
-		out.push(covid::FieldDescriptor::new(&self.cases_by_report.d7s7, "cases_rep_d7s7"));
+		out.push(covid::FieldDescriptor::new(self.cases_by_pub.cum.clone(), "cases_pub_cum"));
+		out.push(covid::FieldDescriptor::new(self.cases_by_pub.d1.clone(), "cases_pub_d1"));
+		out.push(covid::FieldDescriptor::new(self.cases_by_pub.d7.clone(), "cases_pub_d7"));
+		out.push(covid::FieldDescriptor::new(self.cases_by_pub.d7s7.clone(), "cases_pub_d7s7"));
+		out.push(covid::FieldDescriptor::new(self.cases_by_ref.cum.clone(), "cases_ref_cum"));
+		out.push(covid::FieldDescriptor::new(self.cases_by_ref.d1.clone(), "cases_ref_d1"));
+		out.push(covid::FieldDescriptor::new(self.cases_by_ref.d7.clone(), "cases_ref_d7"));
+		out.push(covid::FieldDescriptor::new(self.cases_by_ref.d7s7.clone(), "cases_ref_d7s7"));
+		out.push(covid::FieldDescriptor::new(self.cases_by_report.cum.clone(), "cases_rep_cum"));
+		out.push(covid::FieldDescriptor::new(self.cases_by_report.d1.clone(), "cases_rep_d1"));
+		out.push(covid::FieldDescriptor::new(self.cases_by_report.d7.clone(), "cases_rep_d7"));
+		out.push(covid::FieldDescriptor::new(self.cases_by_report.d7s7.clone(), "cases_rep_d7s7"));
 
-		out.push(covid::FieldDescriptor::new(&self.deaths.cum, "deaths_ref_cum"));
-		out.push(covid::FieldDescriptor::new(&self.deaths.d1, "deaths_ref_d1"));
-		out.push(covid::FieldDescriptor::new(&self.deaths.d7, "deaths_ref_d7"));
-		out.push(covid::FieldDescriptor::new(&self.deaths.d7s7, "deaths_ref_d7s7"));
-		out.push(covid::FieldDescriptor::new(&self.deaths_by_pub.cum, "deaths_pub_cum"));
-		out.push(covid::FieldDescriptor::new(&self.deaths_by_pub.d1, "deaths_pub_d1"));
-		out.push(covid::FieldDescriptor::new(&self.deaths_by_pub.d7, "deaths_pub_d7"));
-		out.push(covid::FieldDescriptor::new(&self.deaths_by_pub.d7s7, "deaths_pub_d7s7"));
+		out.push(covid::FieldDescriptor::new(self.deaths.cum.clone(), "deaths_ref_cum"));
+		out.push(covid::FieldDescriptor::new(self.deaths.d1.clone(), "deaths_ref_d1"));
+		out.push(covid::FieldDescriptor::new(self.deaths.d7.clone(), "deaths_ref_d7"));
+		out.push(covid::FieldDescriptor::new(self.deaths.d7s7.clone(), "deaths_ref_d7s7"));
+		out.push(covid::FieldDescriptor::new(self.deaths_by_pub.cum.clone(), "deaths_pub_cum"));
+		out.push(covid::FieldDescriptor::new(self.deaths_by_pub.d1.clone(), "deaths_pub_d1"));
+		out.push(covid::FieldDescriptor::new(self.deaths_by_pub.d7.clone(), "deaths_pub_d7"));
+		out.push(covid::FieldDescriptor::new(self.deaths_by_pub.d7s7.clone(), "deaths_pub_d7s7"));
 
-		out.push(covid::FieldDescriptor::new(&self.recovered.cum, "recovered_ref_cum"));
-		out.push(covid::FieldDescriptor::new(&self.recovered.d1, "recovered_ref_d1"));
-		out.push(covid::FieldDescriptor::new(&self.recovered.d7, "recovered_ref_d7"));
-		out.push(covid::FieldDescriptor::new(&self.recovered.d7s7, "recovered_ref_d7s7"));
-		out.push(covid::FieldDescriptor::new(&self.recovered_by_pub.cum, "recovered_pub_cum"));
-		out.push(covid::FieldDescriptor::new(&self.recovered_by_pub.d1, "recovered_pub_d1"));
-		out.push(covid::FieldDescriptor::new(&self.recovered_by_pub.d7, "recovered_pub_d7"));
-		out.push(covid::FieldDescriptor::new(&self.recovered_by_pub.d7s7, "recovered_pub_d7s7"));
+		out.push(covid::FieldDescriptor::new(self.recovered.cum.clone(), "recovered_ref_cum"));
+		out.push(covid::FieldDescriptor::new(self.recovered.d1.clone(), "recovered_ref_d1"));
+		out.push(covid::FieldDescriptor::new(self.recovered.d7.clone(), "recovered_ref_d7"));
+		out.push(covid::FieldDescriptor::new(self.recovered.d7s7.clone(), "recovered_ref_d7s7"));
+		out.push(covid::FieldDescriptor::new(self.recovered_by_pub.cum.clone(), "recovered_pub_cum"));
+		out.push(covid::FieldDescriptor::new(self.recovered_by_pub.d1.clone(), "recovered_pub_d1"));
+		out.push(covid::FieldDescriptor::new(self.recovered_by_pub.d7.clone(), "recovered_pub_d7"));
+		out.push(covid::FieldDescriptor::new(self.recovered_by_pub.d7s7.clone(), "recovered_pub_d7s7"));
 	}
 }
 
 
-#[derive(Clone)]
-struct ICULoadData<T: TimeSeriesKey> {
-	pub curr_covid_cases: Counters<T>,
-	pub curr_covid_cases_invasive: Counters<T>,
-	pub curr_beds_free: Counters<T>,
-	pub curr_beds_in_use: Counters<T>,
+struct RawICULoadData {
+	pub curr_covid_cases: Counters<GeoCaseKey>,
+	pub curr_covid_cases_invasive: Counters<GeoCaseKey>,
+	pub curr_beds_free: Counters<GeoCaseKey>,
+	pub curr_beds_in_use: Counters<GeoCaseKey>,
 }
 
-impl ICULoadData<GeoCaseKey> {
+impl RawICULoadData {
 	fn new(start: NaiveDate, end: NaiveDate) -> Self {
 		Self{
 			curr_covid_cases: Counters::new(start, end),
@@ -243,11 +229,9 @@ impl ICULoadData<GeoCaseKey> {
 			curr_beds_in_use: Counters::new(start, end),
 		}
 	}
-}
 
-impl<T: TimeSeriesKey> ICULoadData<T> {
-	pub fn rekeyed<U: TimeSeriesKey, F: Fn(&T) -> Option<U>>(&self, f: F) -> ICULoadData<U> {
-		ICULoadData::<U>{
+	pub fn rekeyed<F: Fn(&GeoCaseKey) -> Option<GeoCaseKey>>(&self, f: F) -> RawICULoadData {
+		Self{
 			curr_covid_cases: self.curr_covid_cases.rekeyed(&f),
 			curr_covid_cases_invasive: self.curr_covid_cases_invasive.rekeyed(&f),
 			curr_beds_free: self.curr_beds_free.rekeyed(&f),
@@ -256,15 +240,45 @@ impl<T: TimeSeriesKey> ICULoadData<T> {
 	}
 }
 
-impl<T: TimeSeriesKey + 'static> ICULoadData<T> {
-	fn write_field_descriptors<'x>(
-		&'x self,
-		out: &mut Vec<covid::FieldDescriptor<'x, dyn covid::ViewTimeSeries<T>>>,
+
+struct CookedICULoadData<T: TimeSeriesKey> {
+	pub curr_covid_cases: Arc<Counters<T>>,
+	pub curr_covid_cases_invasive: Arc<Counters<T>>,
+	pub curr_beds_free: Arc<Counters<T>>,
+	pub curr_beds_in_use: Arc<Counters<T>>,
+}
+
+impl CookedICULoadData<GeoCaseKey> {
+	fn cook(raw: RawICULoadData) -> Self {
+		Self{
+			curr_covid_cases: Arc::new(raw.curr_covid_cases),
+			curr_covid_cases_invasive: Arc::new(raw.curr_covid_cases_invasive),
+			curr_beds_free: Arc::new(raw.curr_beds_free),
+			curr_beds_in_use: Arc::new(raw.curr_beds_in_use),
+		}
+	}
+}
+
+impl<T: TimeSeriesKey> CookedICULoadData<T> {
+	pub fn rekeyed<U: TimeSeriesKey, F: Fn(&T) -> Option<U>>(&self, f: F) -> CookedICULoadData<U> {
+		CookedICULoadData::<U>{
+			curr_covid_cases: Arc::new(self.curr_covid_cases.rekeyed(&f)),
+			curr_covid_cases_invasive: Arc::new(self.curr_covid_cases_invasive.rekeyed(&f)),
+			curr_beds_free: Arc::new(self.curr_beds_free.rekeyed(&f)),
+			curr_beds_in_use: Arc::new(self.curr_beds_in_use.rekeyed(&f)),
+		}
+	}
+}
+
+impl<T: TimeSeriesKey + 'static> CookedICULoadData<T> {
+	fn write_field_descriptors(
+		&self,
+		out: &mut Vec<covid::FieldDescriptor<Arc<dyn covid::ViewTimeSeries<T>>>>,
 	) {
-		out.push(covid::FieldDescriptor::new(&self.curr_covid_cases, "icu_covid_cases"));
-		out.push(covid::FieldDescriptor::new(&self.curr_covid_cases_invasive, "icu_covid_cases_invasive"));
-		out.push(covid::FieldDescriptor::new(&self.curr_beds_free, "icu_beds_free"));
-		out.push(covid::FieldDescriptor::new(&self.curr_beds_in_use, "icu_beds_in_use"));
+		out.push(covid::FieldDescriptor::new(self.curr_covid_cases.clone(), "icu_covid_cases"));
+		out.push(covid::FieldDescriptor::new(self.curr_covid_cases_invasive.clone(), "icu_covid_cases_invasive"));
+		out.push(covid::FieldDescriptor::new(self.curr_beds_free.clone(), "icu_beds_free"));
+		out.push(covid::FieldDescriptor::new(self.curr_beds_in_use.clone(), "icu_beds_in_use"));
 	}
 }
 
@@ -324,15 +338,18 @@ impl RawVaccinationData {
 struct CookedVaccinationData<T: TimeSeriesKey> {
 	pub first_vacc: CounterGroup<T>,
 	pub basic_vacc: CounterGroup<T>,
-	pub basic_vacc_d180: Counters<T>,
+	pub basic_vacc_d180: Arc<Diff<Arc<Counters<T>>>>,
 	pub full_vacc: CounterGroup<T>,
 }
 
 impl CookedVaccinationData<VaccinationKey> {
 	fn cook(raw: RawVaccinationData) -> Self {
 		let basic_vacc = CounterGroup::from_d1(raw.basic_vacc);
-		let mut basic_vacc_d180 = basic_vacc.cum().clone();
-		basic_vacc_d180.diff(180);
+		let basic_vacc_d180 = Arc::new(Diff::padded(
+			basic_vacc.cum.clone(),
+			180,
+			0.,
+		));
 		Self{
 			first_vacc: CounterGroup::from_d1(raw.first_vacc),
 			basic_vacc,
@@ -344,44 +361,41 @@ impl CookedVaccinationData<VaccinationKey> {
 
 impl<T: TimeSeriesKey> CookedVaccinationData<T> {
 	pub fn rekeyed<U: TimeSeriesKey, F: Fn(&T) -> Option<U>>(&self, f: F) -> CookedVaccinationData<U> {
+		let basic_vacc = self.basic_vacc.rekeyed(&f);
+		let basic_vacc_d180 = Arc::new(Diff::padded(
+			basic_vacc.cum.clone(),
+			180,
+			0.,
+		));
 		CookedVaccinationData::<U>{
 			first_vacc: self.first_vacc.rekeyed(&f),
-			basic_vacc: self.basic_vacc.rekeyed(&f),
-			basic_vacc_d180: self.basic_vacc_d180.rekeyed(&f),
+			basic_vacc,
+			basic_vacc_d180,
 			full_vacc: self.full_vacc.rekeyed(&f),
 		}
-	}
-
-	// We may at some point do something about berlin, see the XXX below.
-	#[allow(dead_code)]
-	pub fn synthesize<U: TimeSeriesKey>(&mut self, kin: &[&T], kout: T) {
-		self.first_vacc.synthesize(kin, kout.clone());
-		self.basic_vacc.synthesize(kin, kout.clone());
-		self.basic_vacc_d180.synthesize(kin, kout.clone());
-		self.full_vacc.synthesize(kin, kout.clone());
 	}
 }
 
 impl<T: TimeSeriesKey + 'static> CookedVaccinationData<T> {
-	fn write_field_descriptors<'x>(
-		&'x self,
-		out: &mut Vec<covid::FieldDescriptor<'x, dyn covid::ViewTimeSeries<T>>>,
+	fn write_field_descriptors(
+		&self,
+		out: &mut Vec<covid::FieldDescriptor<Arc<dyn covid::ViewTimeSeries<T>>>>,
 	) {
-		out.push(covid::FieldDescriptor::new(&self.first_vacc.cum, "vacc_first_cum"));
-		out.push(covid::FieldDescriptor::new(&self.first_vacc.d1, "vacc_first_d1"));
-		out.push(covid::FieldDescriptor::new(&self.first_vacc.d7, "vacc_first_d7"));
-		out.push(covid::FieldDescriptor::new(&self.first_vacc.d7s7, "vacc_first_d7s7"));
+		out.push(covid::FieldDescriptor::new(self.first_vacc.cum.clone(), "vacc_first_cum"));
+		out.push(covid::FieldDescriptor::new(self.first_vacc.d1.clone(), "vacc_first_d1"));
+		out.push(covid::FieldDescriptor::new(self.first_vacc.d7.clone(), "vacc_first_d7"));
+		out.push(covid::FieldDescriptor::new(self.first_vacc.d7s7.clone(), "vacc_first_d7s7"));
 
-		out.push(covid::FieldDescriptor::new(&self.basic_vacc.cum, "vacc_basic_cum"));
-		out.push(covid::FieldDescriptor::new(&self.basic_vacc.d1, "vacc_basic_d1"));
-		out.push(covid::FieldDescriptor::new(&self.basic_vacc.d7, "vacc_basic_d7"));
-		out.push(covid::FieldDescriptor::new(&self.basic_vacc.d7s7, "vacc_basic_d7s7"));
-		out.push(covid::FieldDescriptor::new(&self.basic_vacc_d180, "vacc_basic_d180"));
+		out.push(covid::FieldDescriptor::new(self.basic_vacc.cum.clone(), "vacc_basic_cum"));
+		out.push(covid::FieldDescriptor::new(self.basic_vacc.d1.clone(), "vacc_basic_d1"));
+		out.push(covid::FieldDescriptor::new(self.basic_vacc.d7.clone(), "vacc_basic_d7"));
+		out.push(covid::FieldDescriptor::new(self.basic_vacc.d7s7.clone(), "vacc_basic_d7s7"));
+		out.push(covid::FieldDescriptor::new(self.basic_vacc_d180.clone() as Arc<dyn ViewTimeSeries<T>>, "vacc_basic_d180"));
 
-		out.push(covid::FieldDescriptor::new(&self.full_vacc.cum, "vacc_full_cum"));
-		out.push(covid::FieldDescriptor::new(&self.full_vacc.d1, "vacc_full_d1"));
-		out.push(covid::FieldDescriptor::new(&self.full_vacc.d7, "vacc_full_d7"));
-		out.push(covid::FieldDescriptor::new(&self.full_vacc.d7s7, "vacc_full_d7s7"));
+		out.push(covid::FieldDescriptor::new(self.full_vacc.cum.clone(), "vacc_full_cum"));
+		out.push(covid::FieldDescriptor::new(self.full_vacc.d1.clone(), "vacc_full_d1"));
+		out.push(covid::FieldDescriptor::new(self.full_vacc.d7.clone(), "vacc_full_d7"));
+		out.push(covid::FieldDescriptor::new(self.full_vacc.d7s7.clone(), "vacc_full_d7s7"));
 	}
 }
 
@@ -434,23 +448,17 @@ impl<T: TimeSeriesKey> CookedHospitalizationData<T> {
 			cases: self.cases.rekeyed(&f),
 		}
 	}
-
-	// We may at some point do something about berlin, see the XXX below.
-	#[allow(dead_code)]
-	pub fn synthesize<U: TimeSeriesKey>(&mut self, kin: &[&T], kout: T) {
-		self.cases.synthesize(kin, kout.clone());
-	}
 }
 
 impl<T: TimeSeriesKey + 'static> CookedHospitalizationData<T> {
-	fn write_field_descriptors<'x>(
-		&'x self,
-		out: &mut Vec<covid::FieldDescriptor<'x, dyn covid::ViewTimeSeries<T>>>,
+	fn write_field_descriptors(
+		&self,
+		out: &mut Vec<covid::FieldDescriptor<Arc<dyn covid::ViewTimeSeries<T>>>>,
 	) {
-		out.push(covid::FieldDescriptor::new(&self.cases.cum, "hosp_cum"));
-		out.push(covid::FieldDescriptor::new(&self.cases.d1, "hosp_d1"));
-		out.push(covid::FieldDescriptor::new(&self.cases.d7, "hosp_d7"));
-		out.push(covid::FieldDescriptor::new(&self.cases.d7s7, "hosp_d7s7"));
+		out.push(covid::FieldDescriptor::new(self.cases.cum.clone(), "hosp_cum"));
+		out.push(covid::FieldDescriptor::new(self.cases.d1.clone(), "hosp_d1"));
+		out.push(covid::FieldDescriptor::new(self.cases.d7.clone(), "hosp_d7"));
+		out.push(covid::FieldDescriptor::new(self.cases.d7s7.clone(), "hosp_d7s7"));
 	}
 }
 
@@ -501,7 +509,7 @@ fn load_case_data<'s, P: AsRef<Path>, S: ProgressSink + ?Sized>(
 }
 
 
-fn load_divi_load_data<P: AsRef<Path>, S: ProgressSink + ?Sized>(s: &mut S, p: P, data: &mut ICULoadData<GeoCaseKey>) -> io::Result<()> {
+fn load_divi_load_data<P: AsRef<Path>, S: ProgressSink + ?Sized>(s: &mut S, p: P, data: &mut RawICULoadData) -> io::Result<()> {
 	let r = covid::magic_open(p)?;
 	let mut r = csv::Reader::from_reader(r);
 	let mut pm = CountMeter::new(s);
@@ -608,9 +616,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 		let k = (district.state.id, district.id);
 		population.get_or_create(k).fill(district.population);
 	}
-	let population = population.rekeyed(|(state_id, district_id)| {
+	let population = Arc::new(population.rekeyed(|(state_id, district_id)| {
 		Some((*state_id, remap_berlin(*district_id)))
-	});
+	}));
 
 	// We inject berlin only later. This allows us to rekey the population above to eliminate the separate berlin districts.
 	covid::inject_berlin(&states, &mut districts);
@@ -629,7 +637,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 		Some((*state_id, remap_berlin(*district_id), *mag, *sex))
 	});
 
-	let mut icu_load = ICULoadData::new(start, end);
+	let mut icu_load = RawICULoadData::new(start, end);
 	println!("loading ICU data ...");
 	load_divi_load_data(&mut *covid::default_output(), divifile, &mut icu_load)?;
 	let icu_load = icu_load.rekeyed(|(state_id, district_id)| {
@@ -651,6 +659,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 	let cases = CookedCaseData::cook(cases, diff_cases);
 	let vacc = CookedVaccinationData::cook(vacc);
 	let hosp = CookedHospitalizationData::cook(hosp);
+	let icu_load = CookedICULoadData::cook(icu_load);
 
 	let client = covid::env_client();
 
@@ -660,9 +669,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 		let cases = cases.rekeyed(|(state_id, district_id, _, _)| {
 			Some((*state_id, *district_id))
 		});
-		// XXX: This is dangerous and needs to be accounted for in the dashboar **carefully**, otherwise we accidentally double the numbers of berlin...
-		/* let berlin = covid::find_berlin_districts(&districts);
-		data.synthesize(&berlin[..], &(11, 11000)); */
 		let vacc = vacc.rekeyed(|(state_id, district_id, _)| {
 			// drop vaccinations without properly defined state + district
 			match (state_id, district_id) {
@@ -695,7 +701,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 		cases.write_field_descriptors(&mut fields);
 		vacc.write_field_descriptors(&mut fields);
 		icu_load.write_field_descriptors(&mut fields);
-		fields.push(covid::FieldDescriptor::new(&population, "population"));
+		fields.push(covid::FieldDescriptor::new(population.clone(), "population"));
 
 		covid::stream_dynamic(
 			&client,
@@ -714,9 +720,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 		let cases = cases.rekeyed(|(state_id, _, _, _)| {
 			Some(*state_id)
 		});
-		// XXX: This is dangerous and needs to be accounted for in the dashboar **carefully**, otherwise we accidentally double the numbers of berlin...
-		/* let berlin = covid::find_berlin_districts(&districts);
-		data.synthesize(&berlin[..], &(11, 11000)); */
 		let vacc = vacc.rekeyed(|(state_id, district_id, _)| {
 			// drop vaccinations without properly defined state + district
 			match (state_id, district_id) {
@@ -730,9 +733,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 		let hosp = hosp.rekeyed(|(state_id, _)| {
 			Some(*state_id)
 		});
-		let population = population.rekeyed(|(state_id, _)| {
+		let population = Arc::new(population.rekeyed(|(state_id, _)| {
 			Some(*state_id)
-		});
+		}));
 		let keys: Vec<_> = covid::prepare_keyset(
 			&[
 				"state",
@@ -752,7 +755,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 		vacc.write_field_descriptors(&mut fields);
 		icu_load.write_field_descriptors(&mut fields);
 		hosp.write_field_descriptors(&mut fields);
-		fields.push(covid::FieldDescriptor::new(&population, "population"));
+		fields.push(covid::FieldDescriptor::new(population.clone(), "population"));
 
 		covid::stream_dynamic(
 			&client,
