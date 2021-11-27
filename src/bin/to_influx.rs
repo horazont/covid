@@ -8,7 +8,7 @@ use chrono::NaiveDate;
 use csv;
 
 use covid;
-use covid::{StateId, DistrictId, DistrictInfo, InfectionRecord, Counters, FullCaseKey, CountMeter, global_start_date, naive_today, DiffRecord, CounterGroup, GeoCaseKey, ProgressSink, ICULoadRecord, VaccinationKey, VaccinationRecord, VaccinationLevel, HospitalizationRecord, AgeGroup, TimeSeriesKey, Diff, ViewTimeSeries, Filled, RawDestatisRow};
+use covid::{StateId, DistrictId, DistrictInfo, InfectionRecord, Counters, FullCaseKey, CountMeter, global_start_date, naive_today, DiffRecord, CounterGroup, GeoCaseKey, ProgressSink, ICULoadRecord, VaccinationKey, VaccinationRecord, VaccinationLevel, HospitalizationRecord, AgeGroup, TimeSeriesKey, Diff, ViewTimeSeries, Filled, RawDestatisRow, Sex};
 
 
 static GEO_MEASUREMENT_NAME: &'static str = "data_v2_geo";
@@ -486,9 +486,9 @@ impl<T: TimeSeriesKey> RawPopulationData<T> {
 	}
 }
 
-impl RawPopulationData<(StateId, AgeGroup)> {
+impl RawPopulationData<(StateId, AgeGroup, Sex)> {
 	pub fn submit(&mut self, rec: RawDestatisRow) {
-		let k = (rec.state_id, rec.age_group);
+		let k = (rec.state_id, rec.age_group, rec.sex);
 		self.count.get_or_create(k)[0] += rec.count;
 	}
 }
@@ -653,7 +653,7 @@ fn load_hosp_data<'s, P: AsRef<Path>, S: ProgressSink + ?Sized>(
 fn load_destatis_data<'s, P: AsRef<Path>, S: ProgressSink + ?Sized>(
 		s: &'s mut S,
 		p: P,
-		data: &mut RawPopulationData<(StateId, AgeGroup)>,
+		data: &mut RawPopulationData<(StateId, AgeGroup, Sex)>,
 ) -> io::Result<()> {
 	let r = covid::magic_open(p)?;
 	let mut r = csv::Reader::from_reader(r);
@@ -763,20 +763,6 @@ fn load_cooked_vacc_data(
 }
 
 
-fn load_cooked_population_data<F: Fn(&AgeGroup) -> AgeGroup>(
-	destatisfile: &str,
-	f: F,
-) -> Result<CookedPopulationData<(StateId, AgeGroup)>, io::Error> {
-	let mut population = RawPopulationData::new();
-	println!("loading destatis population data ...");
-	load_destatis_data(&mut *covid::default_output(), destatisfile, &mut population)?;
-	let population = population.remapped(|(state_id, ag)| {
-		Some((*state_id, f(ag)))
-	});
-	Ok(CookedPopulationData::cook(population))
-}
-
-
 fn load_all_data(
 	states: &HashMap<DistrictId, Arc<covid::StateInfo>>,
 	districts: &mut HashMap<DistrictId, Arc<covid::DistrictInfo>>,
@@ -792,6 +778,7 @@ fn load_all_data(
 ) -> Result<(
 	CookedPopulationData<GeoCaseKey>,
 	CookedPopulationData<(StateId, AgeGroup)>,
+	CookedPopulationData<(StateId, AgeGroup, Sex)>,
 	CookedCaseData<FullCaseKey>,
 	CookedVaccinationData<VaccinationKey>,
 	CookedHospitalizationData<(StateId, AgeGroup)>,
@@ -815,12 +802,15 @@ fn load_all_data(
 	// We inject berlin only later. This allows us to rekey the population above to eliminate the separate berlin districts.
 	covid::inject_berlin(states, districts);
 
-	let cooked_vacc_population = load_cooked_population_data(
-		destatisfile,
-		|ag| {
+	let mut destatis_population = RawPopulationData::new();
+	println!("loading destatis population data ...");
+	load_destatis_data(&mut *covid::default_output(), destatisfile, &mut destatis_population)?;
+
+	let cooked_vacc_population = CookedPopulationData::cook(
+		destatis_population.remapped(|(state_id, ag, _)| {
 			assert!(ag.high.is_none() || ag.low == ag.high.unwrap());
 			let age = ag.low;
-			if age < 5 {
+			let ag = if age < 5 {
 				AgeGroup{low: 0, high: Some(4)}
 			} else if age < 12 {
 				AgeGroup{low: 5, high: Some(11)}
@@ -830,9 +820,31 @@ fn load_all_data(
 				AgeGroup{low: 18, high: Some(59)}
 			} else {
 				AgeGroup{low: 60, high: None}
-			}
-		},
-	)?;
+			};
+			Some((*state_id, ag))
+		})
+	);
+	let cooked_demo_population = CookedPopulationData::cook(
+		destatis_population.remapped(|(state_id, ag, sex)| {
+			assert!(ag.high.is_none() || ag.low == ag.high.unwrap());
+			let age = ag.low;
+			let ag = if age < 5 {
+				AgeGroup{low: 0, high: Some(4)}
+			} else if age < 15 {
+				AgeGroup{low: 5, high: Some(14)}
+			} else if age < 35 {
+				AgeGroup{low: 15, high: Some(34)}
+			} else if age < 60 {
+				AgeGroup{low: 35, high: Some(59)}
+			} else if age < 80 {
+				AgeGroup{low: 60, high: Some(79)}
+			} else {
+				AgeGroup{low: 80, high: None}
+			};
+			Some((*state_id, ag, *sex))
+		})
+	);
+	drop(destatis_population);
 
 	let cooked_cases = load_cooked_case_data(
 		districts,
@@ -862,6 +874,7 @@ fn load_all_data(
 	Ok((
 		cooked_population,
 		cooked_vacc_population,
+		cooked_demo_population,
 		cooked_cases,
 		cooked_vacc,
 		cooked_hosp,
@@ -889,7 +902,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 	let diffstart = diffstart.parse::<NaiveDate>()?;
 	let end = naive_today();
 
-	let (population, population_vacc, cases, vacc, hosp, icu_load) = load_all_data(
+	let (population, population_vacc, population_demo, cases, vacc, hosp, icu_load) = load_all_data(
 		&states,
 		&mut districts,
 		start,
@@ -1014,7 +1027,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 		println!("preparing {} ...", DEMO_MEASUREMENT_NAME);
 
 		let new_cases = cases.rekeyed(|(state_id, _, ag, s)| {
-			Some((*state_id, *ag, *s))
+			Some((*state_id, (**ag)?, *s))
 		});
 		drop(cases);
 		let cases = new_cases;
@@ -1024,7 +1037,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 				"age",
 				"sex",
 			][..],
-			cases.cases_by_ref.cum.keys(),
+			population_demo.count.keys(),
 			|k, out| {
 				let state_id = k.0;
 				let state_name = &states.get(&state_id).unwrap().name;
@@ -1038,6 +1051,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 		let mut fields = Vec::new();
 		cases.write_field_descriptors(&mut fields);
+		population_demo.write_field_descriptors(&mut fields);
 
 		covid::stream_dynamic(
 			&client,
