@@ -21,7 +21,7 @@ is_policy=true
 [[event]]
 date="2020-02-15"
 title="Karneval Heinsberg"
-state="Nordrhein-Wesfalen"
+state="Nordrhein-Westfalen"
 district="LK Heinsberg"
 is_spreader=true
 spreader_class=5000
