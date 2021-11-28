@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::convert::TryInto;
 use std::io;
 use std::path::Path;
 use std::sync::Arc;
@@ -916,6 +917,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 	let start = global_start_date();
 	let diffstart = diffstart.parse::<NaiveDate>()?;
 	let end = naive_today();
+	let ndays: usize = (end - start).num_days().try_into().unwrap();
 
 	let (population, population_vacc, population_demo, cases, vacc, hosp, icu_load) = load_all_data(
 		&states,
@@ -978,7 +980,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 			&mut *covid::default_output(),
 			GEO_MEASUREMENT_NAME,
 			start,
-			(end - start).num_days() as usize,
+			ndays,
 			&keys,
 			&fields[..],
 		)?;
@@ -1032,7 +1034,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 			&mut *covid::default_output(),
 			GEO_LIGHT_MEASUREMENT_NAME,
 			start,
-			(end - start).num_days() as usize,
+			ndays,
 			&keys,
 			&fields[..],
 		)?;
@@ -1073,7 +1075,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 			&mut *covid::default_output(),
 			DEMO_MEASUREMENT_NAME,
 			start,
-			(end - start).num_days() as usize,
+			ndays,
 			&keys,
 			&fields[..],
 		)?;
@@ -1114,7 +1116,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 			&mut *covid::default_output(),
 			VACC_MEASUREMENT_NAME,
 			start,
-			(end - start).num_days() as usize,
+			ndays,
 			&keys,
 			&fields[..],
 		)?;
