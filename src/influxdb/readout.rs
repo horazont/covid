@@ -17,6 +17,64 @@ pub enum Precision {
 	Seconds,
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub enum FieldValue {
+	Numeric(f64),
+	Integer(i64),
+	Bool(bool),
+	String(SmartString),
+}
+
+impl From<f64> for FieldValue {
+	fn from(other: f64) -> Self {
+		Self::Numeric(other)
+	}
+}
+
+impl From<i64> for FieldValue {
+	fn from(other: i64) -> Self {
+		Self::Integer(other)
+	}
+}
+
+impl From<bool> for FieldValue {
+	fn from(other: bool) -> Self {
+		Self::Bool(other)
+	}
+}
+
+impl From<SmartString> for FieldValue {
+	fn from(other: SmartString) -> Self {
+		Self::String(other)
+	}
+}
+
+impl From<String> for FieldValue {
+	fn from(other: String) -> Self {
+		Self::String(other.into())
+	}
+}
+
+impl From<&str> for FieldValue {
+	fn from(other: &str) -> Self {
+		Self::String(other.into())
+	}
+}
+
+impl FieldValue {
+	fn write_into<W: io::Write>(&self, w: &mut W) -> io::Result<()> {
+		match self {
+			Self::Numeric(v) => write!(w, "{:?}", v),
+			Self::Integer(v) => write!(w, "{:?}i", v),
+			Self::Bool(v) => match v {
+				true => write!(w, "true"),
+				false => write!(w, "false"),
+			},
+			Self::String(v) => write_str(w, v),
+		}
+	}
+}
+
 fn write_escaped<W: io::Write>(w: &mut W, s: &str, pat: &[char]) -> io::Result<()> {
 	let mut prev = 0;
 	for (idx, substr) in s.match_indices(pat) {
@@ -97,7 +155,7 @@ impl Precision {
 #[derive(Debug, Clone)]
 pub struct Sample {
 	pub tagv: Vec<SmartString>,
-	pub fieldv: Vec<f64>,
+	pub fieldv: Vec<FieldValue>,
 }
 
 #[derive(Debug, Clone)]
@@ -125,7 +183,7 @@ impl Readout {
 				dest.write(if first { b" " } else { b"," })?;
 				write_name(dest, k)?;
 				dest.write(b"=")?;
-				write!(dest, "{:?}", v)?;
+				v.write_into(dest)?;
 				first = false;
 			}
 			dest.write_all(&b" "[..])?;

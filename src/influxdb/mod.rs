@@ -1,4 +1,5 @@
 use std::fmt;
+use std::io;
 
 use log::trace;
 
@@ -61,6 +62,12 @@ impl From<reqwest::Error> for Error {
 	}
 }
 
+impl From<Error> for io::Error {
+	fn from(err: Error) -> Self {
+		Self::new(io::ErrorKind::Other, err)
+	}
+}
+
 impl std::error::Error for Error {}
 
 pub struct Client {
@@ -119,7 +126,7 @@ impl Client {
 			retention_policy: Option<&'_ str>,
 			auth: Option<&'_ Auth>,
 			precision: Precision,
-			readouts: &[&Readout],
+			readouts: &[Readout],
 			) -> Result<(), Error>
 	{
 		let body = BytesMut::new();
