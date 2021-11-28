@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 use num_traits::Zero;
 
-use chrono::NaiveDate;
+use chrono::{NaiveDate, Datelike};
 
 
 pub trait TimeSeriesKey: Hash + Eq + Clone + std::fmt::Debug + 'static {}
@@ -258,6 +258,21 @@ impl<T: TimeSeriesKey> TimeSeries<T, u64> {
 			vec[..offset].fill(0);
 		}
 	}
+
+	pub fn timesummed<F: Fn(NaiveDate) -> NaiveDate>(&self, f: F) -> SparseTimeSeries<T, u64> {
+		let mut result = SparseTimeSeries{
+			keys: self.keys.clone(),
+			time_series: Vec::with_capacity(self.time_series.len()),
+		};
+		for (vec_index, vec) in self.time_series.iter().enumerate() {
+			for (j, date_in) in self.start.iter_days().take(self.len).enumerate() {
+				// TODO: might want to optimize this for high-cardinality vectors by allocating a temporary mapping vector?
+				let date_out = f(date_in);
+				*result.insert_default_into_vector(vec_index, &date_out, &0u64) += vec[j];
+			}
+		}
+		result
+	}
 }
 
 
@@ -406,6 +421,99 @@ impl<K: TimeSeriesKey, T: ViewTimeSeries<K>> ViewTimeSeries<K> for Arc<T> {
 	}
 }
 
+pub struct Yearly<I> {
+	inner: I,
+	base: i32,
+}
+
+impl<I> Yearly<I> {
+	pub fn new(inner: I, base: i32) -> Self {
+		Self{inner, base}
+	}
+}
+
+impl<K: TimeSeriesKey, I: ViewTimeSeries<K>> ViewTimeSeries<K> for Yearly<I> {
+	fn getf(&self, k: &K, at: NaiveDate) -> Option<f64> {
+		self.inner.getf(k, NaiveDate::from_ymd(self.base, at.month(), at.day()))
+	}
+}
+
+pub struct SparseTimeSeries<K, V> {
+	keys: HashMap<K, usize>,
+	time_series: Vec<Vec<(NaiveDate, V)>>,
+}
+
+impl<K: Hash + Eq, V> SparseTimeSeries<K, V> {
+	pub fn new() -> Self {
+		Self{
+			keys: HashMap::new(),
+			time_series: Vec::new(),
+		}
+	}
+
+	fn get_or_create_index(&mut self, k: &K) -> usize where K: Clone {
+		match self.keys.get(k) {
+			Some(v) => *v,
+			None => {
+				let v = self.time_series.len();
+				self.time_series.push(Vec::new());
+				self.keys.insert(k.clone(), v);
+				v
+			}
+		}
+	}
+
+	fn insert_default_into_vector(&mut self, vec_index: usize, at: &NaiveDate, d: &V) -> &mut V
+		where V: Clone
+	{
+		let vec = &mut self.time_series[vec_index];
+		match vec.binary_search_by(|haystack| haystack.0.cmp(&at)) {
+			Ok(index) => &mut vec[index].1,
+			Err(index) => {
+				vec.insert(index, (*at, d.clone()));
+				&mut vec[index].1
+			},
+		}
+	}
+
+	pub fn insert_default(&mut self, k: &K, at: &NaiveDate, d: &V) -> &mut V
+		where K: Clone, V: Clone
+	{
+		let vec_index = self.get_or_create_index(k);
+		self.insert_default_into_vector(vec_index, at, d)
+	}
+}
+
+impl<K: TimeSeriesKey> ViewTimeSeries<K> for SparseTimeSeries<K, f64> {
+	fn getf(&self, k: &K, at: NaiveDate) -> Option<f64> {
+		let vec_index = *self.keys.get(k)?;
+		let vec = &self.time_series[vec_index];
+		match vec.binary_search_by(|haystack| haystack.0.cmp(&at)) {
+			Ok(index) => Some(vec[index].1),
+			Err(_) => None,
+		}
+	}
+}
+
+pub fn summed_padded<'x, K: TimeSeriesKey, O: TimeSeriesKey, V: ViewTimeSeries<K>, F: Fn(&NaiveDate, &K) -> Option<(NaiveDate, O)>, I: Iterator<Item = &'x K>>(
+	src: &V,
+	keyset: I,
+	start: NaiveDate,
+	ndays: usize,
+	f: F,
+) -> SparseTimeSeries<O, f64> {
+	let mut result = SparseTimeSeries::new();
+	for key_in in keyset {
+		for date_in in start.iter_days().take(ndays) {
+			let (date_out, key_out) = match f(&date_in, key_in) {
+				Some(v) => v,
+				None => continue,
+			};
+			*result.insert_default(&key_out, &date_out, &0f64) += src.getf(key_in, date_in).unwrap_or(0.);
+		}
+	}
+	result
+}
 
 
 #[macro_export]
