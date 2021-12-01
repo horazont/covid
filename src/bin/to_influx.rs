@@ -143,10 +143,11 @@ struct CookedCaseData<T: TimeSeriesKey> {
 	pub deaths_by_pub: CounterGroup<T>,
 	pub recovered: CounterGroup<T>,
 	pub recovered_by_pub: CounterGroup<T>,
+	diffstart: NaiveDate,
 }
 
 impl CookedCaseData<FullCaseKey> {
-	fn cook(raw: RawCaseData, parboiled: ParboiledCaseData) -> Self {
+	fn cook(raw: RawCaseData, parboiled: ParboiledCaseData, diffstart: NaiveDate) -> Self {
 		Self{
 			cases_by_pub: CounterGroup::from_d1(parboiled.cases_by_pub),
 			case_delay_total: Arc::new(parboiled.case_delay_total),
@@ -157,6 +158,7 @@ impl CookedCaseData<FullCaseKey> {
 			deaths_by_pub: CounterGroup::from_d1(parboiled.deaths_by_pub),
 			recovered: CounterGroup::from_d1(raw.recovered),
 			recovered_by_pub: CounterGroup::from_d1(parboiled.recovered_by_pub),
+			diffstart,
 		}
 	}
 }
@@ -173,6 +175,7 @@ impl<T: TimeSeriesKey> CookedCaseData<T> {
 			deaths_by_pub: self.deaths_by_pub.rekeyed(&f),
 			recovered: self.recovered.rekeyed(&f),
 			recovered_by_pub: self.recovered_by_pub.rekeyed(&f),
+			diffstart: self.diffstart,
 		}
 	}
 }
@@ -181,6 +184,10 @@ impl<T: TimeSeriesKey + 'static> CookedCaseData<T> {
 	fn clamp_result<I>(&self, t: I) -> Arc<TimeMap<I>> {
 		let end = self.cases_by_ref.cum.end() - chrono::Duration::days(28);
 		Arc::new(TimeMap::clamp(t, None, Some(end)))
+	}
+
+	fn clamp_diff<I>(&self, t: I, offset: i64) ->Arc<TimeMap<I>> {
+		Arc::new(TimeMap::clamp(t, Some(self.diffstart + chrono::Duration::days(offset)), None))
 	}
 
 	fn write_field_descriptors(
@@ -207,17 +214,17 @@ impl<T: TimeSeriesKey + 'static> CookedCaseData<T> {
 		out.push(covid::FieldDescriptor::new(self.clamp_result(self.deaths.d7s7.clone()), "deaths_ref_d7s7"));
 		out.push(covid::FieldDescriptor::new(self.clamp_result(Arc::new(Diff::padded(self.deaths.cum.clone(), 28, 0.))), "deaths_ref_d28"));
 		out.push(covid::FieldDescriptor::new(self.clamp_result(Arc::new(Diff::padded(self.deaths.cum.clone(), 112, 0.))), "deaths_ref_d112"));
-		out.push(covid::FieldDescriptor::new(self.deaths_by_pub.d1.clone(), "deaths_pub_d1"));
-		out.push(covid::FieldDescriptor::new(self.deaths_by_pub.d7.clone(), "deaths_pub_d7"));
-		out.push(covid::FieldDescriptor::new(self.deaths_by_pub.d7s7.clone(), "deaths_pub_d7s7"));
+		out.push(covid::FieldDescriptor::new(self.clamp_diff(self.deaths_by_pub.d1.clone(), 0), "deaths_pub_d1"));
+		out.push(covid::FieldDescriptor::new(self.clamp_diff(self.deaths_by_pub.d7.clone(), 6), "deaths_pub_d7"));
+		out.push(covid::FieldDescriptor::new(self.clamp_diff(self.deaths_by_pub.d7s7.clone(), 13), "deaths_pub_d7s7"));
 
 		out.push(covid::FieldDescriptor::new(self.recovered.cum.clone(), "recovered_ref_cum"));
 		out.push(covid::FieldDescriptor::new(self.recovered.d1.clone(), "recovered_ref_d1"));
 		out.push(covid::FieldDescriptor::new(self.clamp_result(self.recovered.d7.clone()), "recovered_ref_d7"));
 		out.push(covid::FieldDescriptor::new(self.clamp_result(self.recovered.d7s7.clone()), "recovered_ref_d7s7"));
-		out.push(covid::FieldDescriptor::new(self.recovered_by_pub.d1.clone(), "recovered_pub_d1"));
-		out.push(covid::FieldDescriptor::new(self.recovered_by_pub.d7.clone(), "recovered_pub_d7"));
-		out.push(covid::FieldDescriptor::new(self.recovered_by_pub.d7s7.clone(), "recovered_pub_d7s7"));
+		out.push(covid::FieldDescriptor::new(self.clamp_diff(self.recovered_by_pub.d1.clone(), 0), "recovered_pub_d1"));
+		out.push(covid::FieldDescriptor::new(self.clamp_diff(self.recovered_by_pub.d7.clone(), 6), "recovered_pub_d7"));
+		out.push(covid::FieldDescriptor::new(self.clamp_diff(self.recovered_by_pub.d7s7.clone(), 13), "recovered_pub_d7s7"));
 
 		out.push(covid::FieldDescriptor::new(self.cases_delayed.clone(), "meta_delay_cases"));
 		out.push(covid::FieldDescriptor::new(self.case_delay_total.clone(), "meta_delay_total"));
@@ -728,7 +735,7 @@ fn load_cooked_case_data(
 	};
 
 	println!("crunching case data...");
-	let cooked_cases = CookedCaseData::cook(cases, diff_cases);
+	let cooked_cases = CookedCaseData::cook(cases, diff_cases, diffstart);
 
 	Ok(cooked_cases)
 }
