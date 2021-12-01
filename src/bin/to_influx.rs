@@ -194,9 +194,9 @@ impl<T: TimeSeriesKey + 'static> CookedCaseData<T> {
 		&self,
 		out: &mut Vec<covid::FieldDescriptor<Arc<dyn covid::ViewTimeSeries<T>>>>,
 	) {
-		out.push(covid::FieldDescriptor::new(self.cases_by_pub.d1.clone(), "cases_pub_d1"));
-		out.push(covid::FieldDescriptor::new(self.cases_by_pub.d7.clone(), "cases_pub_d7"));
-		out.push(covid::FieldDescriptor::new(self.cases_by_pub.d7s7.clone(), "cases_pub_d7s7"));
+		out.push(covid::FieldDescriptor::new(self.clamp_diff(self.cases_by_pub.d1.clone(), 0), "cases_pub_d1"));
+		out.push(covid::FieldDescriptor::new(self.clamp_diff(self.cases_by_pub.d7.clone(), 6), "cases_pub_d7"));
+		out.push(covid::FieldDescriptor::new(self.clamp_diff(self.cases_by_pub.d7s7.clone(), 13), "cases_pub_d7s7"));
 		out.push(covid::FieldDescriptor::new(self.cases_by_ref.cum.clone(), "cases_ref_cum"));
 		out.push(covid::FieldDescriptor::new(self.cases_by_ref.d1.clone(), "cases_ref_d1"));
 		out.push(covid::FieldDescriptor::new(self.cases_by_ref.d7.clone(), "cases_ref_d7"));
