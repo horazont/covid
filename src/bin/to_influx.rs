@@ -290,14 +290,19 @@ impl<T: TimeSeriesKey> CookedICULoadData<T> {
 }
 
 impl<T: TimeSeriesKey + 'static> CookedICULoadData<T> {
+	fn clamp<I>(inner: I) -> Arc<TimeMap<I>> {
+		// no data available before 2020-04-24
+		Arc::new(TimeMap::clamp(inner, Some(NaiveDate::from_ymd(2020, 4, 24)), None))
+	}
+
 	fn write_field_descriptors(
 		&self,
 		out: &mut Vec<covid::FieldDescriptor<Arc<dyn covid::ViewTimeSeries<T>>>>,
 	) {
-		out.push(covid::FieldDescriptor::new(self.curr_covid_cases.clone(), "icu_covid_cases"));
-		out.push(covid::FieldDescriptor::new(self.curr_covid_cases_invasive.clone(), "icu_covid_cases_invasive"));
-		out.push(covid::FieldDescriptor::new(self.curr_beds_free.clone(), "icu_beds_free"));
-		out.push(covid::FieldDescriptor::new(self.curr_beds_in_use.clone(), "icu_beds_in_use"));
+		out.push(covid::FieldDescriptor::new(Self::clamp(self.curr_covid_cases.clone()), "icu_covid_cases"));
+		out.push(covid::FieldDescriptor::new(Self::clamp(self.curr_covid_cases_invasive.clone()), "icu_covid_cases_invasive"));
+		out.push(covid::FieldDescriptor::new(Self::clamp(self.curr_beds_free.clone()), "icu_beds_free"));
+		out.push(covid::FieldDescriptor::new(Self::clamp(self.curr_beds_in_use.clone()), "icu_beds_in_use"));
 	}
 }
 
