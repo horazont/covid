@@ -13,4 +13,4 @@ scriptdir="$(dirname "$0")"
 function download() {
     "$scriptdir/download-versioned.sh" "$@"
 }
-download 'https://www.arcgis.com/sharing/rest/content/items/f10774f1c63e40168479a1feb6c7ca74/data' "$(pwd)/rki" 'cases'
+download 'https://www.arcgis.com/sharing/rest/content/items/f10774f1c63e40168479a1feb6c7ca74/data' "$(pwd)/rki" 'cases' "$(date --date='-1 day' +"%Y/%m/%d")"

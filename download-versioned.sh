@@ -22,7 +22,7 @@ fi
 if [ ! -f "$outfile_gz" ]; then
     if [ -n "$grepcheck" ]; then
         printf 'running data sanity check: %s ... ' "$grepcheck"
-        if ! grep -qF "$grepcheck" "$outfile"; then
+        if ! grep -qlF "$grepcheck" "$outfile" >/dev/null; then
             printf 'DATA SANITY CHECK FAILED! %s not found in this dataset! quarantining and aborting!\n' "$grepcheck"
             mv "$outfile" "$outfile-q$(date -Iseconds).scheckfail"
             exit 2
