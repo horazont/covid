@@ -13,4 +13,4 @@ scriptdir="$(dirname "$0")"
 function download() {
     "$scriptdir/download-versioned.sh" "$@"
 }
-download 'https://github.com/robert-koch-institut/SARS-CoV-2_Infektionen_in_Deutschland/raw/master/Aktuell_Deutschland_SarsCov2_Infektionen.csv' "$(pwd)/rki" 'cases'
+download 'https://www.arcgis.com/sharing/rest/content/items/f10774f1c63e40168479a1feb6c7ca74/data' "$(pwd)/rki" 'cases'
