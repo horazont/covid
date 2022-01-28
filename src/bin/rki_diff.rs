@@ -142,6 +142,8 @@ fn load_existing<R: io::Read, S: ProgressSink + ?Sized>(s: &mut S, r: &mut R, d:
 		d.deaths_by_pub.get_or_create(k)[index] = rec.deaths;
 		d.recovered_by_pub.get_or_create(k)[index] = rec.recovered;
 		d.case_delay_total.get_or_create(k)[index] = rec.delay_total;
+		d.cases_delayed.get_or_create(k)[index] = rec.cases_delayed;
+		d.late_cases.get_or_create(k)[index] = rec.late_cases;
 		if i % 500000 == 499999 {
 			pm.update(i+1);
 		}
