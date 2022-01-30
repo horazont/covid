@@ -5,12 +5,10 @@ use std::sync::Arc;
 
 use num_traits::Zero;
 
-use chrono::{NaiveDate, Datelike};
-
+use chrono::{Datelike, NaiveDate};
 
 pub trait TimeSeriesKey: Hash + Eq + Clone + std::fmt::Debug + 'static {}
 impl<T: Hash + Eq + Clone + std::fmt::Debug + 'static> TimeSeriesKey for T {}
-
 
 #[derive(Debug, Clone)]
 pub struct TimeSeries<T: Hash + Eq, V: Copy> {
@@ -25,7 +23,7 @@ impl<T: Hash + Eq, V: Copy> TimeSeries<T, V> {
 		let len = (last - start).num_days();
 		assert!(len >= 0);
 		let len = len as usize;
-		Self{
+		Self {
 			start,
 			len,
 			keys: HashMap::new(),
@@ -37,17 +35,17 @@ impl<T: Hash + Eq, V: Copy> TimeSeries<T, V> {
 	pub fn date_index(&self, other: NaiveDate) -> Option<usize> {
 		let days = (other - self.start).num_days();
 		if days < 0 || days as usize >= self.len {
-			return None
+			return None;
 		}
-		return Some(days as usize)
+		return Some(days as usize);
 	}
 
 	#[inline(always)]
 	pub fn index_date(&self, i: i64) -> Option<NaiveDate> {
 		if i < 0 || i as usize >= self.len {
-			return None
+			return None;
 		}
-		return Some(self.start + chrono::Duration::days(i))
+		return Some(self.start + chrono::Duration::days(i));
 	}
 
 	#[inline(always)]
@@ -87,7 +85,7 @@ impl<T: TimeSeriesKey, V: Copy + Zero> TimeSeries<T, V> {
 				self.time_series.push(vec);
 				self.keys.insert(k, v);
 				v
-			},
+			}
 		}
 	}
 
@@ -100,7 +98,7 @@ impl<T: TimeSeriesKey, V: Copy + Zero> TimeSeries<T, V> {
 				self.time_series.push(vec);
 				self.keys.insert(k, v);
 				v
-			},
+			}
 		}
 	}
 
@@ -115,9 +113,9 @@ impl<T: TimeSeriesKey, V: Copy + Zero> TimeSeries<T, V> {
 
 	pub fn get_value(&self, k: &T, i: usize) -> Option<V> {
 		if i >= self.len {
-			return None
+			return None;
 		}
-		self.get(k).and_then(|v| { Some(v[i]) })
+		self.get(k).and_then(|v| Some(v[i]))
 	}
 
 	pub fn keys(&self) -> std::collections::hash_map::Keys<'_, T, usize> {
@@ -129,7 +127,7 @@ impl<T: TimeSeriesKey, V: Copy + Zero> TimeSeries<T, V> {
 	fn reverse_index(&self, i: usize) -> Option<&T> {
 		for (k, v) in self.keys.iter() {
 			if *v == i {
-				return Some(k)
+				return Some(k);
 			}
 		}
 		None
@@ -138,7 +136,7 @@ impl<T: TimeSeriesKey, V: Copy + Zero> TimeSeries<T, V> {
 
 impl<T: TimeSeriesKey> TimeSeries<T, u64> {
 	pub fn rekeyed<U: TimeSeriesKey, F: Fn(&T) -> Option<U>>(&self, f: F) -> TimeSeries<U, u64> {
-		let mut result = TimeSeries::<U, u64>{
+		let mut result = TimeSeries::<U, u64> {
 			start: self.start,
 			len: self.len,
 			keys: HashMap::new(),
@@ -220,10 +218,10 @@ impl<T: TimeSeriesKey> TimeSeries<T, u64> {
 				let v_l: i64 = if i < window_size {
 					0
 				} else {
-					dst[i-window_size].try_into().unwrap()
+					dst[i - window_size].try_into().unwrap()
 				};
 				let v_p: i64 = if i > 0 {
-					src[i-1].try_into().unwrap()
+					src[i - 1].try_into().unwrap()
 				} else {
 					0
 				};
@@ -265,7 +263,7 @@ impl<T: TimeSeriesKey> TimeSeries<T, u64> {
 	}
 
 	pub fn timesummed<F: Fn(NaiveDate) -> NaiveDate>(&self, f: F) -> SparseTimeSeries<T, u64> {
-		let mut result = SparseTimeSeries{
+		let mut result = SparseTimeSeries {
 			keys: self.keys.clone(),
 			time_series: Vec::with_capacity(self.time_series.len()),
 		};
@@ -280,11 +278,9 @@ impl<T: TimeSeriesKey> TimeSeries<T, u64> {
 	}
 }
 
-
 pub trait ViewTimeSeries<T: TimeSeriesKey> {
 	fn getf(&self, k: &T, at: NaiveDate) -> Option<f64>;
 }
-
 
 impl<T: TimeSeriesKey> ViewTimeSeries<T> for TimeSeries<T, u64> {
 	fn getf(&self, k: &T, at: NaiveDate) -> Option<f64> {
@@ -293,14 +289,12 @@ impl<T: TimeSeriesKey> ViewTimeSeries<T> for TimeSeries<T, u64> {
 	}
 }
 
-
 impl<T: TimeSeriesKey> ViewTimeSeries<T> for TimeSeries<T, i64> {
 	fn getf(&self, k: &T, at: NaiveDate) -> Option<f64> {
 		let i = self.date_index(at)?;
 		Some(self.get_value(k, i).unwrap_or(0) as f64)
 	}
 }
-
 
 impl<T: TimeSeriesKey> ViewTimeSeries<T> for TimeSeries<T, f64> {
 	fn getf(&self, k: &T, at: NaiveDate) -> Option<f64> {
@@ -319,7 +313,7 @@ pub struct TimeMap<I> {
 
 impl<I> TimeMap<I> {
 	pub fn shift(inner: I, by: i64) -> Self {
-		Self{
+		Self {
 			inner,
 			by,
 			start: None,
@@ -329,7 +323,7 @@ impl<I> TimeMap<I> {
 	}
 
 	pub fn clamp(inner: I, start: Option<NaiveDate>, end: Option<NaiveDate>) -> Self {
-		Self{
+		Self {
 			inner,
 			by: 0,
 			start,
@@ -343,12 +337,12 @@ impl<K: TimeSeriesKey, I: ViewTimeSeries<K>> ViewTimeSeries<K> for TimeMap<I> {
 	fn getf(&self, k: &K, at: NaiveDate) -> Option<f64> {
 		if let Some(start) = self.start {
 			if at < start {
-				return None
+				return None;
 			}
 		}
 		if let Some(end) = self.end {
 			if at >= end {
-				return None
+				return None;
 			}
 		}
 		let at = at + chrono::Duration::days(self.by);
@@ -363,7 +357,7 @@ pub struct Filled<I> {
 
 impl<I> Filled<I> {
 	pub fn new(inner: I, from: NaiveDate) -> Self {
-		Self{inner, from}
+		Self { inner, from }
 	}
 }
 
@@ -381,14 +375,21 @@ pub struct Diff<I> {
 
 impl<I> Diff<I> {
 	pub fn padded(inner: I, window: u32, pad: f64) -> Self {
-		Self{inner, window, pad: Some(pad)}
+		Self {
+			inner,
+			window,
+			pad: Some(pad),
+		}
 	}
 }
 
 impl<K: TimeSeriesKey, I: ViewTimeSeries<K>> ViewTimeSeries<K> for Diff<I> {
 	fn getf(&self, k: &K, at: NaiveDate) -> Option<f64> {
 		let vr = self.inner.getf(k, at)?;
-		let vl = self.inner.getf(k, at - chrono::Duration::days(self.window as i64)).or(self.pad)?;
+		let vl = self
+			.inner
+			.getf(k, at - chrono::Duration::days(self.window as i64))
+			.or(self.pad)?;
 		Some(vr - vl)
 	}
 }
@@ -400,7 +401,7 @@ pub struct MovingSum<I> {
 
 impl<I> MovingSum<I> {
 	pub fn new(inner: I, window: u32) -> Self {
-		Self{inner, window}
+		Self { inner, window }
 	}
 }
 
@@ -408,7 +409,10 @@ impl<K: TimeSeriesKey, I: ViewTimeSeries<K>> ViewTimeSeries<K> for MovingSum<I> 
 	fn getf(&self, k: &K, at: NaiveDate) -> Option<f64> {
 		let mut accum = self.inner.getf(k, at)?;
 		for i in (1..self.window).rev() {
-			accum += self.inner.getf(k, at - chrono::Duration::days(i as i64)).unwrap_or(0.)
+			accum += self
+				.inner
+				.getf(k, at - chrono::Duration::days(i as i64))
+				.unwrap_or(0.)
 		}
 		Some(accum)
 	}
@@ -433,13 +437,14 @@ pub struct Yearly<I> {
 
 impl<I> Yearly<I> {
 	pub fn new(inner: I, base: i32) -> Self {
-		Self{inner, base}
+		Self { inner, base }
 	}
 }
 
 impl<K: TimeSeriesKey, I: ViewTimeSeries<K>> ViewTimeSeries<K> for Yearly<I> {
 	fn getf(&self, k: &K, at: NaiveDate) -> Option<f64> {
-		self.inner.getf(k, NaiveDate::from_ymd(self.base, at.month(), at.day()))
+		self.inner
+			.getf(k, NaiveDate::from_ymd(self.base, at.month(), at.day()))
 	}
 }
 
@@ -450,13 +455,16 @@ pub struct SparseTimeSeries<K, V> {
 
 impl<K: Hash + Eq, V> SparseTimeSeries<K, V> {
 	pub fn new() -> Self {
-		Self{
+		Self {
 			keys: HashMap::new(),
 			time_series: Vec::new(),
 		}
 	}
 
-	fn get_or_create_index(&mut self, k: &K) -> usize where K: Clone {
+	fn get_or_create_index(&mut self, k: &K) -> usize
+	where
+		K: Clone,
+	{
 		match self.keys.get(k) {
 			Some(v) => *v,
 			None => {
@@ -469,7 +477,8 @@ impl<K: Hash + Eq, V> SparseTimeSeries<K, V> {
 	}
 
 	fn insert_default_into_vector(&mut self, vec_index: usize, at: &NaiveDate, d: &V) -> &mut V
-		where V: Clone
+	where
+		V: Clone,
 	{
 		let vec = &mut self.time_series[vec_index];
 		match vec.binary_search_by(|haystack| haystack.0.cmp(&at)) {
@@ -477,12 +486,14 @@ impl<K: Hash + Eq, V> SparseTimeSeries<K, V> {
 			Err(index) => {
 				vec.insert(index, (*at, d.clone()));
 				&mut vec[index].1
-			},
+			}
 		}
 	}
 
 	pub fn insert_default(&mut self, k: &K, at: &NaiveDate, d: &V) -> &mut V
-		where K: Clone, V: Clone
+	where
+		K: Clone,
+		V: Clone,
 	{
 		let vec_index = self.get_or_create_index(k);
 		self.insert_default_into_vector(vec_index, at, d)
@@ -500,7 +511,14 @@ impl<K: TimeSeriesKey> ViewTimeSeries<K> for SparseTimeSeries<K, f64> {
 	}
 }
 
-pub fn summed_padded<'x, K: TimeSeriesKey, O: TimeSeriesKey, V: ViewTimeSeries<K>, F: Fn(&NaiveDate, &K) -> Option<(NaiveDate, O)>, I: Iterator<Item = &'x K>>(
+pub fn summed_padded<
+	'x,
+	K: TimeSeriesKey,
+	O: TimeSeriesKey,
+	V: ViewTimeSeries<K>,
+	F: Fn(&NaiveDate, &K) -> Option<(NaiveDate, O)>,
+	I: Iterator<Item = &'x K>,
+>(
 	src: &V,
 	keyset: I,
 	start: NaiveDate,
@@ -514,12 +532,12 @@ pub fn summed_padded<'x, K: TimeSeriesKey, O: TimeSeriesKey, V: ViewTimeSeries<K
 				Some(v) => v,
 				None => continue,
 			};
-			*result.insert_default(&key_out, &date_out, &0f64) += src.getf(key_in, date_in).unwrap_or(0.);
+			*result.insert_default(&key_out, &date_out, &0f64) +=
+				src.getf(key_in, date_in).unwrap_or(0.);
 		}
 	}
 	result
 }
-
 
 #[macro_export]
 macro_rules! joined_keyset_ref {
@@ -536,7 +554,6 @@ macro_rules! joined_keyset_ref {
 	}
 }
 
-
 impl<T: TimeSeriesKey> From<TimeSeries<T, u64>> for TimeSeries<T, f64> {
 	fn from(mut other: TimeSeries<T, u64>) -> Self {
 		// the most evil thing.
@@ -547,15 +564,16 @@ impl<T: TimeSeriesKey> From<TimeSeries<T, u64>> for TimeSeries<T, f64> {
 				}
 			}
 		}
-		Self{
+		Self {
 			start: other.start,
 			len: other.len,
 			keys: other.keys,
-			time_series: unsafe { std::mem::transmute::<Vec<Vec<u64>>, Vec<Vec<f64>>>(other.time_series) },
+			time_series: unsafe {
+				std::mem::transmute::<Vec<Vec<u64>>, Vec<Vec<f64>>>(other.time_series)
+			},
 		}
 	}
 }
-
 
 pub struct CounterGroup<T: TimeSeriesKey> {
 	pub cum: Arc<Counters<T>>,
@@ -568,7 +586,7 @@ impl<T: TimeSeriesKey> CounterGroup<T> {
 	pub fn from_cum(cum: Counters<T>) -> Self {
 		let cum = Arc::new(cum);
 		let d7 = Arc::new(Diff::padded(cum.clone(), 7, 0.));
-		Self{
+		Self {
 			cum: cum.clone(),
 			d1: Arc::new(Diff::padded(cum.clone(), 1, 0.)),
 			d7: d7.clone(),
@@ -607,7 +625,6 @@ impl<T: TimeSeriesKey> CounterGroup<T> {
 		self.d7s7.clone() as _
 	}
 }
-
 
 pub type Counters<T> = TimeSeries<T, u64>;
 pub type IGauge<T> = TimeSeries<T, u64>;

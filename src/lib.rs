@@ -2,29 +2,28 @@ use std::env;
 use std::io::Write;
 use std::sync::Arc;
 
-use chrono::{NaiveDate, Utc, TimeZone, Datelike};
+use chrono::{Datelike, NaiveDate, TimeZone, Utc};
 
-use bytes::{Bytes, BytesMut, BufMut};
+use bytes::{BufMut, Bytes, BytesMut};
 
-use smartstring::alias::{String as SmartString};
+use smartstring::alias::String as SmartString;
 
-pub mod influxdb;
-mod ioutil;
 mod context;
 mod destatis;
-mod rki;
-mod progress;
 mod divi;
+pub mod influxdb;
+mod ioutil;
+mod progress;
+mod rki;
 pub mod timeseries;
 
-pub use ioutil::magic_open;
 pub use context::*;
-pub use rki::*;
-pub use progress::*;
-pub use divi::*;
 pub use destatis::*;
+pub use divi::*;
+pub use ioutil::magic_open;
+pub use progress::*;
+pub use rki::*;
 pub use timeseries::*;
-
 
 pub fn naive_today() -> NaiveDate {
 	Utc::today().naive_local()
@@ -34,16 +33,15 @@ pub fn global_start_date() -> NaiveDate {
 	NaiveDate::from_ymd(2020, 1, 1)
 }
 
-
 #[derive(Debug, Clone)]
-pub struct FieldDescriptor<T>{
+pub struct FieldDescriptor<T> {
 	name: &'static str,
 	inner: T,
 }
 
 impl<T> FieldDescriptor<T> {
 	pub fn new(inner: T, name: &'static str) -> Self {
-		Self{inner, name}
+		Self { inner, name }
 	}
 
 	pub fn name(&self) -> &str {
@@ -55,8 +53,12 @@ impl<T> FieldDescriptor<T> {
 	}
 }
 
-
-pub fn prepare_keyset<'x, K: TimeSeriesKey, I: Iterator<Item = &'x K>, F: Fn(&K, &mut Vec<SmartString>) -> ()>(
+pub fn prepare_keyset<
+	'x,
+	K: TimeSeriesKey,
+	I: Iterator<Item = &'x K>,
+	F: Fn(&K, &mut Vec<SmartString>) -> (),
+>(
 	tags: &[&str],
 	keys: I,
 	f: F,
@@ -79,7 +81,6 @@ pub fn prepare_keyset<'x, K: TimeSeriesKey, I: Iterator<Item = &'x K>, F: Fn(&K,
 	result
 }
 
-
 pub fn stream_dynamic<K: TimeSeriesKey, S: ProgressSink + ?Sized>(
 	sink: &influxdb::Client,
 	progress: &mut S,
@@ -95,7 +96,8 @@ pub fn stream_dynamic<K: TimeSeriesKey, S: ProgressSink + ?Sized>(
 
 	let measurement_bytes = {
 		let mut buf = BytesMut::new().writer();
-		influxdb::readout::write_measurement(&mut buf, measurement).expect("write to BytesMut failed");
+		influxdb::readout::write_measurement(&mut buf, measurement)
+			.expect("write to BytesMut failed");
 		buf.into_inner().freeze()
 	};
 
@@ -107,7 +109,13 @@ pub fn stream_dynamic<K: TimeSeriesKey, S: ProgressSink + ?Sized>(
 	let mut timestamp_serialized = BytesMut::new().writer();
 	for (i, date) in start.iter_days().take(ndays).enumerate() {
 		timestamp_serialized.get_mut().clear();
-		precision.encode_timestamp(&mut timestamp_serialized, &Utc.ymd(date.year(), date.month(), date.day()).and_hms(0, 0, 0)).expect("write to BytesMut failed");
+		precision
+			.encode_timestamp(
+				&mut timestamp_serialized,
+				&Utc.ymd(date.year(), date.month(), date.day())
+					.and_hms(0, 0, 0),
+			)
+			.expect("write to BytesMut failed");
 
 		for (k, tagset) in keyset.iter() {
 			fields_serialized.get_mut().clear();
@@ -118,7 +126,8 @@ pub fn stream_dynamic<K: TimeSeriesKey, S: ProgressSink + ?Sized>(
 						// write separator
 						fields_serialized.get_mut().put_u8(b',');
 					}
-					influxdb::readout::write_name(&mut fields_serialized, desc.name()).expect("write to BytesMut failed");
+					influxdb::readout::write_name(&mut fields_serialized, desc.name())
+						.expect("write to BytesMut failed");
 					fields_serialized.get_mut().put_u8(b'=');
 					write!(&mut fields_serialized, "{:?}", v).expect("write to BytesMut failed");
 				}
@@ -140,24 +149,12 @@ pub fn stream_dynamic<K: TimeSeriesKey, S: ProgressSink + ?Sized>(
 		if i % chunk_size == 0 {
 			let mut to_submit = BytesMut::with_capacity(buffer.capacity());
 			std::mem::swap(&mut to_submit, &mut buffer);
-			sink.post_raw(
-				"covid",
-				None,
-				None,
-				precision,
-				to_submit.freeze(),
-			)?;
-			pm.update(i+1);
+			sink.post_raw("covid", None, None, precision, to_submit.freeze())?;
+			pm.update(i + 1);
 		}
 	}
 	if buffer.len() > 0 {
-		sink.post_raw(
-			"covid",
-			None,
-			None,
-			precision,
-			buffer.freeze(),
-		)?;
+		sink.post_raw("covid", None, None, precision, buffer.freeze())?;
 	}
 	pm.finish();
 	Ok(())
@@ -167,11 +164,11 @@ pub fn env_client() -> influxdb::Client {
 	let user = env::var("INFLUXDB_USER");
 	let pass = env::var("INFLUXDB_PASSWORD");
 	let auth = match (user, pass) {
-		(Ok(username), Ok(password)) => influxdb::Auth::HTTP{
-			username,
-			password
-		},
-		(Ok(_), Err(e)) | (Err(e), Ok(_)) => panic!("failed to read env for INFLUXDB_USER/INFLUXDB_PASSWORD: {}", e),
+		(Ok(username), Ok(password)) => influxdb::Auth::HTTP { username, password },
+		(Ok(_), Err(e)) | (Err(e), Ok(_)) => panic!(
+			"failed to read env for INFLUXDB_USER/INFLUXDB_PASSWORD: {}",
+			e
+		),
 		(Err(_), Err(_)) => influxdb::Auth::None,
 	};
 	influxdb::Client::new(

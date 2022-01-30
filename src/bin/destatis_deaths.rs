@@ -4,11 +4,12 @@ use std::path::Path;
 
 use csv;
 
-use covid::{ProgressSink, RawDestatisDeathByMonthRow, DestatisDeathHistoric, DestatisDeathCurrent};
+use covid::{
+	DestatisDeathCurrent, DestatisDeathHistoric, ProgressSink, RawDestatisDeathByMonthRow,
+};
 
 static FIRST_YEAR: i32 = 2020;
 static LAST_YEAR: Option<i32> = None;
-
 
 #[derive(Debug, Clone)]
 struct RawMonthlyData {
@@ -18,7 +19,7 @@ struct RawMonthlyData {
 
 impl RawMonthlyData {
 	fn new() -> Self {
-		Self{
+		Self {
 			pre_pandemic_samples: Default::default(),
 			pandemic_samples: BTreeMap::new(),
 		}
@@ -40,7 +41,7 @@ impl RawMonthlyData {
 	fn write_pandemics<W: io::Write>(&self, w: W) -> io::Result<()> {
 		let mut w = csv::Writer::from_writer(w);
 		for ((year, month), v) in self.pandemic_samples.iter() {
-			w.serialize(DestatisDeathCurrent{
+			w.serialize(DestatisDeathCurrent {
 				year: *year,
 				month: *month,
 				death_incidence_per_inhabitant: *v,
@@ -55,10 +56,11 @@ impl RawMonthlyData {
 			Some(v) => v,
 			None => return,
 		};
-		if rec.year < FIRST_YEAR || rec.year > LAST_YEAR.unwrap_or(rec.year+1) {
+		if rec.year < FIRST_YEAR || rec.year > LAST_YEAR.unwrap_or(rec.year + 1) {
 			self.submit_outside(rec.month, incidence);
 		} else {
-			self.pandemic_samples.insert((rec.year, rec.month), incidence);
+			self.pandemic_samples
+				.insert((rec.year, rec.month), incidence);
 		}
 	}
 
@@ -90,7 +92,7 @@ fn load_data<P: AsRef<Path>, S: ProgressSink + ?Sized>(
 		let rec: RawDestatisDeathByMonthRow = row?;
 		out.submit(rec);
 		if i % 100 == 99 {
-			pm.update(i+1);
+			pm.update(i + 1);
 		}
 		n = i + 1;
 	}
@@ -105,11 +107,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 	let out_pandemic = &argv[3];
 	let mut data = RawMonthlyData::new();
 	println!("loading destatis data ...");
-	load_data(
-		&mut *covid::default_output(),
-		datafile,
-		&mut data,
-	)?;
+	load_data(&mut *covid::default_output(), datafile, &mut data)?;
 	println!("writing pre-pandemic summary ...");
 	{
 		let w = std::fs::File::create(out_pre_pandemic)?;

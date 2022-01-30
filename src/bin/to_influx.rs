@@ -9,15 +9,18 @@ use chrono::NaiveDate;
 use csv;
 
 use covid;
-use covid::{StateId, DistrictId, DistrictInfo, InfectionRecord, Counters, FullCaseKey, CountMeter, global_start_date, naive_today, DiffRecord, CounterGroup, GeoCaseKey, ProgressSink, ICULoadRecord, VaccinationKey, VaccinationRecord, VaccinationLevel, HospitalizationRecord, AgeGroup, TimeSeriesKey, Diff, ViewTimeSeries, Filled, RawDestatisRow, Sex, TimeMap};
-
+use covid::{
+	global_start_date, naive_today, AgeGroup, CountMeter, CounterGroup, Counters, Diff, DiffRecord,
+	DistrictId, DistrictInfo, Filled, FullCaseKey, GeoCaseKey, HospitalizationRecord,
+	ICULoadRecord, InfectionRecord, ProgressSink, RawDestatisRow, Sex, StateId, TimeMap,
+	TimeSeriesKey, VaccinationKey, VaccinationLevel, VaccinationRecord, ViewTimeSeries,
+};
 
 static GEO_MEASUREMENT_NAME: &'static str = "data_v2_geo";
 static GEO_LIGHT_MEASUREMENT_NAME: &'static str = "data_v2_geo_light";
 static DEMO_MEASUREMENT_NAME: &'static str = "data_v2_demo";
 static VACC_MEASUREMENT_NAME: &'static str = "data_v2_vacc";
 // static DEMO_LIGHT_MEASUREMENT_NAME: &'static str = "data_v2_demo_light";
-
 
 struct RawCaseData {
 	pub cases_by_ref: Counters<FullCaseKey>,
@@ -28,7 +31,7 @@ struct RawCaseData {
 
 impl RawCaseData {
 	fn new(start: NaiveDate, end: NaiveDate) -> Self {
-		Self{
+		Self {
 			cases_by_ref: Counters::new(start, end),
 			cases_by_report: Counters::new(start, end),
 			deaths: Counters::new(start, end),
@@ -37,15 +40,11 @@ impl RawCaseData {
 	}
 
 	fn submit(
-			&mut self,
-			district_map: &HashMap<DistrictId, Arc<DistrictInfo>>,
-			rec: &InfectionRecord)
-	{
-		let case_count = if rec.case.valid() {
-			rec.case_count
-		} else {
-			0
-		};
+		&mut self,
+		district_map: &HashMap<DistrictId, Arc<DistrictInfo>>,
+		rec: &InfectionRecord,
+	) {
+		let case_count = if rec.case.valid() { rec.case_count } else { 0 };
 		assert!(case_count >= 0);
 		let death_count = if rec.death.valid() {
 			rec.death_count
@@ -60,12 +59,25 @@ impl RawCaseData {
 		};
 		assert!(recovered_count >= 0);
 
-		let district_info = district_map.get(&rec.district_id).expect("unknown district");
-		let k = (district_info.state.id, rec.district_id, rec.age_group, rec.sex);
-		let ref_index = self.cases_by_ref.date_index(rec.reference_date).expect("date out of range");
+		let district_info = district_map
+			.get(&rec.district_id)
+			.expect("unknown district");
+		let k = (
+			district_info.state.id,
+			rec.district_id,
+			rec.age_group,
+			rec.sex,
+		);
+		let ref_index = self
+			.cases_by_ref
+			.date_index(rec.reference_date)
+			.expect("date out of range");
 		if case_count > 0 {
 			self.cases_by_ref.get_or_create(k)[ref_index] += case_count as u64;
-			let report_index = self.cases_by_report.date_index(rec.report_date).expect("date out of range");
+			let report_index = self
+				.cases_by_report
+				.date_index(rec.report_date)
+				.expect("date out of range");
 			self.cases_by_report.get_or_create(k)[report_index] += case_count as u64;
 		}
 		if death_count > 0 {
@@ -77,7 +89,7 @@ impl RawCaseData {
 	}
 
 	fn remapped<F: Fn(&FullCaseKey) -> Option<FullCaseKey>>(&self, f: F) -> RawCaseData {
-		RawCaseData{
+		RawCaseData {
 			cases_by_ref: self.cases_by_ref.rekeyed(&f),
 			cases_by_report: self.cases_by_report.rekeyed(&f),
 			deaths: self.deaths.rekeyed(&f),
@@ -85,7 +97,6 @@ impl RawCaseData {
 		}
 	}
 }
-
 
 struct ParboiledCaseData {
 	pub cases_by_pub: Counters<FullCaseKey>,
@@ -97,7 +108,7 @@ struct ParboiledCaseData {
 
 impl ParboiledCaseData {
 	fn new(start: NaiveDate, end: NaiveDate) -> Self {
-		Self{
+		Self {
 			cases_by_pub: Counters::new(start, end),
 			case_delay_total: Counters::new(start, end),
 			cases_delayed: Counters::new(start, end),
@@ -106,14 +117,20 @@ impl ParboiledCaseData {
 		}
 	}
 
-	fn submit(
-			&mut self,
-			district_map: &HashMap<DistrictId, Arc<DistrictInfo>>,
-			rec: &DiffRecord)
-	{
-		let district_info = district_map.get(&rec.district_id).expect("unknown district");
-		let k = (district_info.state.id, rec.district_id, rec.age_group, rec.sex);
-		let ref_index = self.cases_by_pub.date_index(rec.date).expect("date out of range");
+	fn submit(&mut self, district_map: &HashMap<DistrictId, Arc<DistrictInfo>>, rec: &DiffRecord) {
+		let district_info = district_map
+			.get(&rec.district_id)
+			.expect("unknown district");
+		let k = (
+			district_info.state.id,
+			rec.district_id,
+			rec.age_group,
+			rec.sex,
+		);
+		let ref_index = self
+			.cases_by_pub
+			.date_index(rec.date)
+			.expect("date out of range");
 		self.cases_by_pub.get_or_create(k)[ref_index] += rec.cases;
 		self.case_delay_total.get_or_create(k)[ref_index] += rec.delay_total;
 		self.cases_delayed.get_or_create(k)[ref_index] += rec.cases_delayed;
@@ -122,7 +139,7 @@ impl ParboiledCaseData {
 	}
 
 	fn remapped<F: Fn(&FullCaseKey) -> Option<FullCaseKey>>(&self, f: F) -> ParboiledCaseData {
-		ParboiledCaseData{
+		ParboiledCaseData {
 			cases_by_pub: self.cases_by_pub.rekeyed(&f),
 			case_delay_total: self.case_delay_total.rekeyed(&f),
 			cases_delayed: self.cases_delayed.rekeyed(&f),
@@ -131,7 +148,6 @@ impl ParboiledCaseData {
 		}
 	}
 }
-
 
 struct CookedCaseData<T: TimeSeriesKey> {
 	pub cases_by_pub: CounterGroup<T>,
@@ -148,7 +164,7 @@ struct CookedCaseData<T: TimeSeriesKey> {
 
 impl CookedCaseData<FullCaseKey> {
 	fn cook(raw: RawCaseData, parboiled: ParboiledCaseData, diffstart: NaiveDate) -> Self {
-		Self{
+		Self {
 			cases_by_pub: CounterGroup::from_d1(parboiled.cases_by_pub),
 			case_delay_total: Arc::new(parboiled.case_delay_total),
 			cases_delayed: Arc::new(parboiled.cases_delayed),
@@ -165,7 +181,7 @@ impl CookedCaseData<FullCaseKey> {
 
 impl<T: TimeSeriesKey> CookedCaseData<T> {
 	pub fn rekeyed<U: TimeSeriesKey, F: Fn(&T) -> Option<U>>(&self, f: F) -> CookedCaseData<U> {
-		CookedCaseData::<U>{
+		CookedCaseData::<U> {
 			cases_by_pub: self.cases_by_pub.rekeyed(&f),
 			case_delay_total: Arc::new(self.case_delay_total.rekeyed(&f)),
 			cases_delayed: Arc::new(self.cases_delayed.rekeyed(&f)),
@@ -186,51 +202,147 @@ impl<T: TimeSeriesKey + 'static> CookedCaseData<T> {
 		Arc::new(TimeMap::clamp(t, None, Some(end)))
 	}
 
-	fn clamp_diff<I>(&self, t: I, offset: i64) ->Arc<TimeMap<I>> {
-		Arc::new(TimeMap::clamp(t, Some(self.diffstart + chrono::Duration::days(offset)), None))
+	fn clamp_diff<I>(&self, t: I, offset: i64) -> Arc<TimeMap<I>> {
+		Arc::new(TimeMap::clamp(
+			t,
+			Some(self.diffstart + chrono::Duration::days(offset)),
+			None,
+		))
 	}
 
 	fn write_field_descriptors(
 		&self,
 		out: &mut Vec<covid::FieldDescriptor<Arc<dyn covid::ViewTimeSeries<T>>>>,
 	) {
-		out.push(covid::FieldDescriptor::new(self.clamp_diff(self.cases_by_pub.d1.clone(), 0), "cases_pub_d1"));
-		out.push(covid::FieldDescriptor::new(self.clamp_diff(self.cases_by_pub.d7.clone(), 6), "cases_pub_d7"));
-		out.push(covid::FieldDescriptor::new(self.clamp_diff(self.cases_by_pub.d7s7.clone(), 13), "cases_pub_d7s7"));
-		out.push(covid::FieldDescriptor::new(self.cases_by_ref.cum.clone(), "cases_ref_cum"));
-		out.push(covid::FieldDescriptor::new(self.cases_by_ref.d1.clone(), "cases_ref_d1"));
-		out.push(covid::FieldDescriptor::new(self.cases_by_ref.d7.clone(), "cases_ref_d7"));
-		out.push(covid::FieldDescriptor::new(self.cases_by_ref.d7s7.clone(), "cases_ref_d7s7"));
-		out.push(covid::FieldDescriptor::new(Arc::new(Diff::padded(self.cases_by_ref.cum.clone(), 28, 0.)), "cases_ref_d28"));
-		out.push(covid::FieldDescriptor::new(Arc::new(Diff::padded(self.cases_by_ref.cum.clone(), 112, 0.)), "cases_ref_d112"));
-		out.push(covid::FieldDescriptor::new(self.cases_by_report.cum.clone(), "cases_rep_cum"));
-		out.push(covid::FieldDescriptor::new(self.cases_by_report.d1.clone(), "cases_rep_d1"));
-		out.push(covid::FieldDescriptor::new(self.cases_by_report.d7.clone(), "cases_rep_d7"));
-		out.push(covid::FieldDescriptor::new(self.cases_by_report.d7s7.clone(), "cases_rep_d7s7"));
+		out.push(covid::FieldDescriptor::new(
+			self.clamp_diff(self.cases_by_pub.d1.clone(), 0),
+			"cases_pub_d1",
+		));
+		out.push(covid::FieldDescriptor::new(
+			self.clamp_diff(self.cases_by_pub.d7.clone(), 6),
+			"cases_pub_d7",
+		));
+		out.push(covid::FieldDescriptor::new(
+			self.clamp_diff(self.cases_by_pub.d7s7.clone(), 13),
+			"cases_pub_d7s7",
+		));
+		out.push(covid::FieldDescriptor::new(
+			self.cases_by_ref.cum.clone(),
+			"cases_ref_cum",
+		));
+		out.push(covid::FieldDescriptor::new(
+			self.cases_by_ref.d1.clone(),
+			"cases_ref_d1",
+		));
+		out.push(covid::FieldDescriptor::new(
+			self.cases_by_ref.d7.clone(),
+			"cases_ref_d7",
+		));
+		out.push(covid::FieldDescriptor::new(
+			self.cases_by_ref.d7s7.clone(),
+			"cases_ref_d7s7",
+		));
+		out.push(covid::FieldDescriptor::new(
+			Arc::new(Diff::padded(self.cases_by_ref.cum.clone(), 28, 0.)),
+			"cases_ref_d28",
+		));
+		out.push(covid::FieldDescriptor::new(
+			Arc::new(Diff::padded(self.cases_by_ref.cum.clone(), 112, 0.)),
+			"cases_ref_d112",
+		));
+		out.push(covid::FieldDescriptor::new(
+			self.cases_by_report.cum.clone(),
+			"cases_rep_cum",
+		));
+		out.push(covid::FieldDescriptor::new(
+			self.cases_by_report.d1.clone(),
+			"cases_rep_d1",
+		));
+		out.push(covid::FieldDescriptor::new(
+			self.cases_by_report.d7.clone(),
+			"cases_rep_d7",
+		));
+		out.push(covid::FieldDescriptor::new(
+			self.cases_by_report.d7s7.clone(),
+			"cases_rep_d7s7",
+		));
 
-		out.push(covid::FieldDescriptor::new(self.deaths.cum.clone(), "deaths_ref_cum"));
-		out.push(covid::FieldDescriptor::new(self.deaths.d1.clone(), "deaths_ref_d1"));
-		out.push(covid::FieldDescriptor::new(self.clamp_result(self.deaths.d7.clone()), "deaths_ref_d7"));
-		out.push(covid::FieldDescriptor::new(self.clamp_result(self.deaths.d7s7.clone()), "deaths_ref_d7s7"));
-		out.push(covid::FieldDescriptor::new(self.clamp_result(Arc::new(Diff::padded(self.deaths.cum.clone(), 28, 0.))), "deaths_ref_d28"));
-		out.push(covid::FieldDescriptor::new(self.clamp_result(Arc::new(Diff::padded(self.deaths.cum.clone(), 112, 0.))), "deaths_ref_d112"));
-		out.push(covid::FieldDescriptor::new(self.clamp_diff(self.deaths_by_pub.d1.clone(), 0), "deaths_pub_d1"));
-		out.push(covid::FieldDescriptor::new(self.clamp_diff(self.deaths_by_pub.d7.clone(), 6), "deaths_pub_d7"));
-		out.push(covid::FieldDescriptor::new(self.clamp_diff(self.deaths_by_pub.d7s7.clone(), 13), "deaths_pub_d7s7"));
+		out.push(covid::FieldDescriptor::new(
+			self.deaths.cum.clone(),
+			"deaths_ref_cum",
+		));
+		out.push(covid::FieldDescriptor::new(
+			self.deaths.d1.clone(),
+			"deaths_ref_d1",
+		));
+		out.push(covid::FieldDescriptor::new(
+			self.clamp_result(self.deaths.d7.clone()),
+			"deaths_ref_d7",
+		));
+		out.push(covid::FieldDescriptor::new(
+			self.clamp_result(self.deaths.d7s7.clone()),
+			"deaths_ref_d7s7",
+		));
+		out.push(covid::FieldDescriptor::new(
+			self.clamp_result(Arc::new(Diff::padded(self.deaths.cum.clone(), 28, 0.))),
+			"deaths_ref_d28",
+		));
+		out.push(covid::FieldDescriptor::new(
+			self.clamp_result(Arc::new(Diff::padded(self.deaths.cum.clone(), 112, 0.))),
+			"deaths_ref_d112",
+		));
+		out.push(covid::FieldDescriptor::new(
+			self.clamp_diff(self.deaths_by_pub.d1.clone(), 0),
+			"deaths_pub_d1",
+		));
+		out.push(covid::FieldDescriptor::new(
+			self.clamp_diff(self.deaths_by_pub.d7.clone(), 6),
+			"deaths_pub_d7",
+		));
+		out.push(covid::FieldDescriptor::new(
+			self.clamp_diff(self.deaths_by_pub.d7s7.clone(), 13),
+			"deaths_pub_d7s7",
+		));
 
-		out.push(covid::FieldDescriptor::new(self.recovered.cum.clone(), "recovered_ref_cum"));
-		out.push(covid::FieldDescriptor::new(self.recovered.d1.clone(), "recovered_ref_d1"));
-		out.push(covid::FieldDescriptor::new(self.clamp_result(self.recovered.d7.clone()), "recovered_ref_d7"));
-		out.push(covid::FieldDescriptor::new(self.clamp_result(self.recovered.d7s7.clone()), "recovered_ref_d7s7"));
-		out.push(covid::FieldDescriptor::new(self.clamp_diff(self.recovered_by_pub.d1.clone(), 0), "recovered_pub_d1"));
-		out.push(covid::FieldDescriptor::new(self.clamp_diff(self.recovered_by_pub.d7.clone(), 6), "recovered_pub_d7"));
-		out.push(covid::FieldDescriptor::new(self.clamp_diff(self.recovered_by_pub.d7s7.clone(), 13), "recovered_pub_d7s7"));
+		out.push(covid::FieldDescriptor::new(
+			self.recovered.cum.clone(),
+			"recovered_ref_cum",
+		));
+		out.push(covid::FieldDescriptor::new(
+			self.recovered.d1.clone(),
+			"recovered_ref_d1",
+		));
+		out.push(covid::FieldDescriptor::new(
+			self.clamp_result(self.recovered.d7.clone()),
+			"recovered_ref_d7",
+		));
+		out.push(covid::FieldDescriptor::new(
+			self.clamp_result(self.recovered.d7s7.clone()),
+			"recovered_ref_d7s7",
+		));
+		out.push(covid::FieldDescriptor::new(
+			self.clamp_diff(self.recovered_by_pub.d1.clone(), 0),
+			"recovered_pub_d1",
+		));
+		out.push(covid::FieldDescriptor::new(
+			self.clamp_diff(self.recovered_by_pub.d7.clone(), 6),
+			"recovered_pub_d7",
+		));
+		out.push(covid::FieldDescriptor::new(
+			self.clamp_diff(self.recovered_by_pub.d7s7.clone(), 13),
+			"recovered_pub_d7s7",
+		));
 
-		out.push(covid::FieldDescriptor::new(self.cases_delayed.clone(), "meta_delay_cases"));
-		out.push(covid::FieldDescriptor::new(self.case_delay_total.clone(), "meta_delay_total"));
+		out.push(covid::FieldDescriptor::new(
+			self.cases_delayed.clone(),
+			"meta_delay_cases",
+		));
+		out.push(covid::FieldDescriptor::new(
+			self.case_delay_total.clone(),
+			"meta_delay_total",
+		));
 	}
 }
-
 
 struct RawICULoadData {
 	pub curr_covid_cases: Counters<GeoCaseKey>,
@@ -241,7 +353,7 @@ struct RawICULoadData {
 
 impl RawICULoadData {
 	fn new(start: NaiveDate, end: NaiveDate) -> Self {
-		Self{
+		Self {
 			curr_covid_cases: Counters::new(start, end),
 			curr_covid_cases_invasive: Counters::new(start, end),
 			curr_beds_free: Counters::new(start, end),
@@ -250,7 +362,7 @@ impl RawICULoadData {
 	}
 
 	pub fn rekeyed<F: Fn(&GeoCaseKey) -> Option<GeoCaseKey>>(&self, f: F) -> RawICULoadData {
-		Self{
+		Self {
 			curr_covid_cases: self.curr_covid_cases.rekeyed(&f),
 			curr_covid_cases_invasive: self.curr_covid_cases_invasive.rekeyed(&f),
 			curr_beds_free: self.curr_beds_free.rekeyed(&f),
@@ -258,7 +370,6 @@ impl RawICULoadData {
 		}
 	}
 }
-
 
 struct CookedICULoadData<T: TimeSeriesKey> {
 	pub curr_covid_cases: Arc<Counters<T>>,
@@ -269,7 +380,7 @@ struct CookedICULoadData<T: TimeSeriesKey> {
 
 impl CookedICULoadData<GeoCaseKey> {
 	fn cook(raw: RawICULoadData) -> Self {
-		Self{
+		Self {
 			curr_covid_cases: Arc::new(raw.curr_covid_cases),
 			curr_covid_cases_invasive: Arc::new(raw.curr_covid_cases_invasive),
 			curr_beds_free: Arc::new(raw.curr_beds_free),
@@ -280,7 +391,7 @@ impl CookedICULoadData<GeoCaseKey> {
 
 impl<T: TimeSeriesKey> CookedICULoadData<T> {
 	pub fn rekeyed<U: TimeSeriesKey, F: Fn(&T) -> Option<U>>(&self, f: F) -> CookedICULoadData<U> {
-		CookedICULoadData::<U>{
+		CookedICULoadData::<U> {
 			curr_covid_cases: Arc::new(self.curr_covid_cases.rekeyed(&f)),
 			curr_covid_cases_invasive: Arc::new(self.curr_covid_cases_invasive.rekeyed(&f)),
 			curr_beds_free: Arc::new(self.curr_beds_free.rekeyed(&f)),
@@ -292,20 +403,35 @@ impl<T: TimeSeriesKey> CookedICULoadData<T> {
 impl<T: TimeSeriesKey + 'static> CookedICULoadData<T> {
 	fn clamp<I>(inner: I) -> Arc<TimeMap<I>> {
 		// no data available before 2020-04-24
-		Arc::new(TimeMap::clamp(inner, Some(NaiveDate::from_ymd(2020, 4, 24)), None))
+		Arc::new(TimeMap::clamp(
+			inner,
+			Some(NaiveDate::from_ymd(2020, 4, 24)),
+			None,
+		))
 	}
 
 	fn write_field_descriptors(
 		&self,
 		out: &mut Vec<covid::FieldDescriptor<Arc<dyn covid::ViewTimeSeries<T>>>>,
 	) {
-		out.push(covid::FieldDescriptor::new(Self::clamp(self.curr_covid_cases.clone()), "icu_covid_cases"));
-		out.push(covid::FieldDescriptor::new(Self::clamp(self.curr_covid_cases_invasive.clone()), "icu_covid_cases_invasive"));
-		out.push(covid::FieldDescriptor::new(Self::clamp(self.curr_beds_free.clone()), "icu_beds_free"));
-		out.push(covid::FieldDescriptor::new(Self::clamp(self.curr_beds_in_use.clone()), "icu_beds_in_use"));
+		out.push(covid::FieldDescriptor::new(
+			Self::clamp(self.curr_covid_cases.clone()),
+			"icu_covid_cases",
+		));
+		out.push(covid::FieldDescriptor::new(
+			Self::clamp(self.curr_covid_cases_invasive.clone()),
+			"icu_covid_cases_invasive",
+		));
+		out.push(covid::FieldDescriptor::new(
+			Self::clamp(self.curr_beds_free.clone()),
+			"icu_beds_free",
+		));
+		out.push(covid::FieldDescriptor::new(
+			Self::clamp(self.curr_beds_in_use.clone()),
+			"icu_beds_in_use",
+		));
 	}
 }
-
 
 struct RawVaccinationData {
 	pub first_vacc: Counters<VaccinationKey>,
@@ -315,7 +441,7 @@ struct RawVaccinationData {
 
 impl RawVaccinationData {
 	fn new(start: NaiveDate, end: NaiveDate) -> Self {
-		Self{
+		Self {
 			first_vacc: Counters::new(start, end),
 			basic_vacc: Counters::new(start, end),
 			full_vacc: Counters::new(start, end),
@@ -323,10 +449,10 @@ impl RawVaccinationData {
 	}
 
 	fn submit(
-			&mut self,
-			district_map: &HashMap<DistrictId, Arc<DistrictInfo>>,
-			rec: &VaccinationRecord)
-	{
+		&mut self,
+		district_map: &HashMap<DistrictId, Arc<DistrictInfo>>,
+		rec: &VaccinationRecord,
+	) {
 		let mapped_district_id = match rec.district_id.0 {
 			// Bundesfoo, unmap
 			Some(district_id) if district_id == 17000 => None,
@@ -336,7 +462,7 @@ impl RawVaccinationData {
 			Some(district_id) => {
 				let district_info = district_map.get(&district_id).expect("district not found");
 				Some(district_info.state.id)
-			},
+			}
 			None => None,
 		};
 		let k = (state_id, mapped_district_id, rec.age_group);
@@ -349,15 +475,17 @@ impl RawVaccinationData {
 		ts.get_or_create(k)[index] += rec.count;
 	}
 
-	pub fn remapped<F: Fn(&VaccinationKey) -> Option<VaccinationKey>>(&self, f: F) -> RawVaccinationData {
-		RawVaccinationData{
+	pub fn remapped<F: Fn(&VaccinationKey) -> Option<VaccinationKey>>(
+		&self,
+		f: F,
+	) -> RawVaccinationData {
+		RawVaccinationData {
 			first_vacc: self.first_vacc.rekeyed(&f),
 			basic_vacc: self.basic_vacc.rekeyed(&f),
 			full_vacc: self.full_vacc.rekeyed(&f),
 		}
 	}
 }
-
 
 struct CookedVaccinationData<T: TimeSeriesKey> {
 	pub first_vacc: CounterGroup<T>,
@@ -369,12 +497,8 @@ struct CookedVaccinationData<T: TimeSeriesKey> {
 impl CookedVaccinationData<VaccinationKey> {
 	fn cook(raw: RawVaccinationData) -> Self {
 		let basic_vacc = CounterGroup::from_d1(raw.basic_vacc);
-		let basic_vacc_d180 = Arc::new(Diff::padded(
-			basic_vacc.cum.clone(),
-			180,
-			0.,
-		));
-		Self{
+		let basic_vacc_d180 = Arc::new(Diff::padded(basic_vacc.cum.clone(), 180, 0.));
+		Self {
 			first_vacc: CounterGroup::from_d1(raw.first_vacc),
 			basic_vacc,
 			basic_vacc_d180,
@@ -384,14 +508,13 @@ impl CookedVaccinationData<VaccinationKey> {
 }
 
 impl<T: TimeSeriesKey> CookedVaccinationData<T> {
-	pub fn rekeyed<U: TimeSeriesKey, F: Fn(&T) -> Option<U>>(&self, f: F) -> CookedVaccinationData<U> {
+	pub fn rekeyed<U: TimeSeriesKey, F: Fn(&T) -> Option<U>>(
+		&self,
+		f: F,
+	) -> CookedVaccinationData<U> {
 		let basic_vacc = self.basic_vacc.rekeyed(&f);
-		let basic_vacc_d180 = Arc::new(Diff::padded(
-			basic_vacc.cum.clone(),
-			180,
-			0.,
-		));
-		CookedVaccinationData::<U>{
+		let basic_vacc_d180 = Arc::new(Diff::padded(basic_vacc.cum.clone(), 180, 0.));
+		CookedVaccinationData::<U> {
 			first_vacc: self.first_vacc.rekeyed(&f),
 			basic_vacc,
 			basic_vacc_d180,
@@ -405,24 +528,62 @@ impl<T: TimeSeriesKey + 'static> CookedVaccinationData<T> {
 		&self,
 		out: &mut Vec<covid::FieldDescriptor<Arc<dyn covid::ViewTimeSeries<T>>>>,
 	) {
-		out.push(covid::FieldDescriptor::new(self.first_vacc.cum.clone(), "vacc_first_cum"));
-		out.push(covid::FieldDescriptor::new(self.first_vacc.d1.clone(), "vacc_first_d1"));
-		out.push(covid::FieldDescriptor::new(self.first_vacc.d7.clone(), "vacc_first_d7"));
-		out.push(covid::FieldDescriptor::new(self.first_vacc.d7s7.clone(), "vacc_first_d7s7"));
+		out.push(covid::FieldDescriptor::new(
+			self.first_vacc.cum.clone(),
+			"vacc_first_cum",
+		));
+		out.push(covid::FieldDescriptor::new(
+			self.first_vacc.d1.clone(),
+			"vacc_first_d1",
+		));
+		out.push(covid::FieldDescriptor::new(
+			self.first_vacc.d7.clone(),
+			"vacc_first_d7",
+		));
+		out.push(covid::FieldDescriptor::new(
+			self.first_vacc.d7s7.clone(),
+			"vacc_first_d7s7",
+		));
 
-		out.push(covid::FieldDescriptor::new(self.basic_vacc.cum.clone(), "vacc_basic_cum"));
-		out.push(covid::FieldDescriptor::new(self.basic_vacc.d1.clone(), "vacc_basic_d1"));
-		out.push(covid::FieldDescriptor::new(self.basic_vacc.d7.clone(), "vacc_basic_d7"));
-		out.push(covid::FieldDescriptor::new(self.basic_vacc.d7s7.clone(), "vacc_basic_d7s7"));
-		out.push(covid::FieldDescriptor::new(self.basic_vacc_d180.clone() as Arc<dyn ViewTimeSeries<T>>, "vacc_basic_d180"));
+		out.push(covid::FieldDescriptor::new(
+			self.basic_vacc.cum.clone(),
+			"vacc_basic_cum",
+		));
+		out.push(covid::FieldDescriptor::new(
+			self.basic_vacc.d1.clone(),
+			"vacc_basic_d1",
+		));
+		out.push(covid::FieldDescriptor::new(
+			self.basic_vacc.d7.clone(),
+			"vacc_basic_d7",
+		));
+		out.push(covid::FieldDescriptor::new(
+			self.basic_vacc.d7s7.clone(),
+			"vacc_basic_d7s7",
+		));
+		out.push(covid::FieldDescriptor::new(
+			self.basic_vacc_d180.clone() as Arc<dyn ViewTimeSeries<T>>,
+			"vacc_basic_d180",
+		));
 
-		out.push(covid::FieldDescriptor::new(self.full_vacc.cum.clone(), "vacc_full_cum"));
-		out.push(covid::FieldDescriptor::new(self.full_vacc.d1.clone(), "vacc_full_d1"));
-		out.push(covid::FieldDescriptor::new(self.full_vacc.d7.clone(), "vacc_full_d7"));
-		out.push(covid::FieldDescriptor::new(self.full_vacc.d7s7.clone(), "vacc_full_d7s7"));
+		out.push(covid::FieldDescriptor::new(
+			self.full_vacc.cum.clone(),
+			"vacc_full_cum",
+		));
+		out.push(covid::FieldDescriptor::new(
+			self.full_vacc.d1.clone(),
+			"vacc_full_d1",
+		));
+		out.push(covid::FieldDescriptor::new(
+			self.full_vacc.d7.clone(),
+			"vacc_full_d7",
+		));
+		out.push(covid::FieldDescriptor::new(
+			self.full_vacc.d7s7.clone(),
+			"vacc_full_d7s7",
+		));
 	}
 }
-
 
 struct RawHospitalizationData {
 	pub cases_d7: Counters<(StateId, AgeGroup)>,
@@ -430,18 +591,15 @@ struct RawHospitalizationData {
 
 impl RawHospitalizationData {
 	fn new(start: NaiveDate, end: NaiveDate) -> Self {
-		Self{
+		Self {
 			cases_d7: Counters::new(start, end),
 		}
 	}
 
-	fn submit(
-			&mut self,
-			rec: &HospitalizationRecord)
-	{
+	fn submit(&mut self, rec: &HospitalizationRecord) {
 		// sum of everything, we don't want that
 		if rec.state_id == 0 {
-			return
+			return;
 		}
 		let index = match self.cases_d7.date_index(rec.date) {
 			Some(i) => i,
@@ -460,15 +618,18 @@ struct CookedHospitalizationData<T: TimeSeriesKey> {
 
 impl CookedHospitalizationData<(StateId, AgeGroup)> {
 	fn cook(raw: RawHospitalizationData) -> Self {
-		Self{
+		Self {
 			cases: CounterGroup::from_d7(raw.cases_d7),
 		}
 	}
 }
 
 impl<T: TimeSeriesKey> CookedHospitalizationData<T> {
-	pub fn rekeyed<U: TimeSeriesKey, F: Fn(&T) -> Option<U>>(&self, f: F) -> CookedHospitalizationData<U> {
-		CookedHospitalizationData::<U>{
+	pub fn rekeyed<U: TimeSeriesKey, F: Fn(&T) -> Option<U>>(
+		&self,
+		f: F,
+	) -> CookedHospitalizationData<U> {
+		CookedHospitalizationData::<U> {
 			cases: self.cases.rekeyed(&f),
 		}
 	}
@@ -484,16 +645,27 @@ impl<T: TimeSeriesKey + 'static> CookedHospitalizationData<T> {
 		&self,
 		out: &mut Vec<covid::FieldDescriptor<Arc<dyn covid::ViewTimeSeries<T>>>>,
 	) {
-		out.push(covid::FieldDescriptor::new(self.clamped(self.cases.cum.clone()), "hosp_cum"));
-		out.push(covid::FieldDescriptor::new(self.clamped(self.cases.d1.clone()), "hosp_d1"));
-		out.push(covid::FieldDescriptor::new(self.clamped(self.cases.d7.clone()), "hosp_d7"));
-		out.push(covid::FieldDescriptor::new(self.clamped(self.cases.d7s7.clone()), "hosp_d7s7"));
+		out.push(covid::FieldDescriptor::new(
+			self.clamped(self.cases.cum.clone()),
+			"hosp_cum",
+		));
+		out.push(covid::FieldDescriptor::new(
+			self.clamped(self.cases.d1.clone()),
+			"hosp_d1",
+		));
+		out.push(covid::FieldDescriptor::new(
+			self.clamped(self.cases.d7.clone()),
+			"hosp_d7",
+		));
+		out.push(covid::FieldDescriptor::new(
+			self.clamped(self.cases.d7s7.clone()),
+			"hosp_d7s7",
+		));
 	}
 }
 
-
 struct RawPopulationData<T: TimeSeriesKey> {
-	pub count: Counters<T>
+	pub count: Counters<T>,
 }
 
 impl<T: TimeSeriesKey> RawPopulationData<T> {
@@ -504,11 +676,13 @@ impl<T: TimeSeriesKey> RawPopulationData<T> {
 
 	pub fn new() -> Self {
 		let ref_date = Self::ref_date();
-		Self{count: Counters::new(ref_date, ref_date + chrono::Duration::days(1))}
+		Self {
+			count: Counters::new(ref_date, ref_date + chrono::Duration::days(1)),
+		}
 	}
 
 	pub fn remapped<U: TimeSeriesKey, F: Fn(&T) -> Option<U>>(&self, f: F) -> RawPopulationData<U> {
-		RawPopulationData::<U>{
+		RawPopulationData::<U> {
 			count: self.count.rekeyed(&f),
 		}
 	}
@@ -521,24 +695,31 @@ impl RawPopulationData<(StateId, AgeGroup, Sex)> {
 	}
 }
 
-
 struct CookedPopulationData<T: TimeSeriesKey> {
-	count: Arc<Counters<T>>
+	count: Arc<Counters<T>>,
 }
 
 impl<T: TimeSeriesKey> CookedPopulationData<T> {
 	pub fn cook(raw: RawPopulationData<T>) -> Self {
-		Self{count: Arc::new(raw.count)}
+		Self {
+			count: Arc::new(raw.count),
+		}
 	}
 
-	pub fn rekeyed<U: TimeSeriesKey, F: Fn(&T) -> Option<U>>(&self, f: F) -> CookedPopulationData<U> {
-		CookedPopulationData::<U>{
+	pub fn rekeyed<U: TimeSeriesKey, F: Fn(&T) -> Option<U>>(
+		&self,
+		f: F,
+	) -> CookedPopulationData<U> {
+		CookedPopulationData::<U> {
 			count: Arc::new(self.count.rekeyed(&f)),
 		}
 	}
 
 	pub fn view(&self) -> Arc<Filled<Arc<Counters<T>>>> {
-		Arc::new(Filled::new(self.count.clone(), RawPopulationData::<T>::ref_date()))
+		Arc::new(Filled::new(
+			self.count.clone(),
+			RawPopulationData::<T>::ref_date(),
+		))
 	}
 }
 
@@ -547,19 +728,15 @@ impl<T: TimeSeriesKey + 'static> CookedPopulationData<T> {
 		&self,
 		out: &mut Vec<covid::FieldDescriptor<Arc<dyn covid::ViewTimeSeries<T>>>>,
 	) {
-		out.push(covid::FieldDescriptor::new(
-			self.view(),
-			"population",
-		));
+		out.push(covid::FieldDescriptor::new(self.view(), "population"));
 	}
 }
 
-
 fn load_diff_data<'s, P: AsRef<Path>, S: ProgressSink + ?Sized>(
-		s: &'s mut S,
-		p: P,
-		district_map: &HashMap<DistrictId, Arc<DistrictInfo>>,
-		cases: &mut ParboiledCaseData
+	s: &'s mut S,
+	p: P,
+	district_map: &HashMap<DistrictId, Arc<DistrictInfo>>,
+	cases: &mut ParboiledCaseData,
 ) -> io::Result<()> {
 	let r = covid::magic_open(p)?;
 	let mut r = csv::Reader::from_reader(r);
@@ -569,20 +746,19 @@ fn load_diff_data<'s, P: AsRef<Path>, S: ProgressSink + ?Sized>(
 		let rec: DiffRecord = row?;
 		cases.submit(district_map, &rec);
 		if i % 500000 == 499999 {
-			pm.update(i+1);
+			pm.update(i + 1);
 		}
-		n = i+1;
+		n = i + 1;
 	}
 	pm.finish(n);
 	Ok(())
 }
 
-
 fn load_case_data<'s, P: AsRef<Path>, S: ProgressSink + ?Sized>(
-		s: &'s mut S,
-		p: P,
-		district_map: &HashMap<DistrictId, Arc<DistrictInfo>>,
-		cases: &mut RawCaseData
+	s: &'s mut S,
+	p: P,
+	district_map: &HashMap<DistrictId, Arc<DistrictInfo>>,
+	cases: &mut RawCaseData,
 ) -> io::Result<()> {
 	let r = covid::magic_open(p)?;
 	let mut r = csv::Reader::from_reader(r);
@@ -592,16 +768,19 @@ fn load_case_data<'s, P: AsRef<Path>, S: ProgressSink + ?Sized>(
 		let rec: InfectionRecord = row?;
 		cases.submit(district_map, &rec);
 		if i % 500000 == 499999 {
-			pm.update(i+1);
+			pm.update(i + 1);
 		}
-		n = i+1;
+		n = i + 1;
 	}
 	pm.finish(n);
 	Ok(())
 }
 
-
-fn load_divi_load_data<P: AsRef<Path>, S: ProgressSink + ?Sized>(s: &mut S, p: P, data: &mut RawICULoadData) -> io::Result<()> {
+fn load_divi_load_data<P: AsRef<Path>, S: ProgressSink + ?Sized>(
+	s: &mut S,
+	p: P,
+	data: &mut RawICULoadData,
+) -> io::Result<()> {
 	let r = covid::magic_open(p)?;
 	let mut r = csv::Reader::from_reader(r);
 	let mut pm = CountMeter::new(s);
@@ -616,24 +795,24 @@ fn load_divi_load_data<P: AsRef<Path>, S: ProgressSink + ?Sized>(s: &mut S, p: P
 		};
 		let k = (rec.state_id, rec.district_id);
 		data.curr_covid_cases.get_or_create(k)[index] = rec.current_covid_cases as u64;
-		data.curr_covid_cases_invasive.get_or_create(k)[index] = rec.current_covid_cases_invasive_ventilation as u64;
+		data.curr_covid_cases_invasive.get_or_create(k)[index] =
+			rec.current_covid_cases_invasive_ventilation as u64;
 		data.curr_beds_free.get_or_create(k)[index] = rec.beds_free as u64;
 		data.curr_beds_in_use.get_or_create(k)[index] = rec.beds_in_use as u64;
 		if i % 500000 == 499999 {
-			pm.update(i+1);
+			pm.update(i + 1);
 		}
-		n = i+1;
+		n = i + 1;
 	}
 	pm.finish(n);
 	Ok(())
 }
 
-
 fn load_vacc_data<'s, P: AsRef<Path>, S: ProgressSink + ?Sized>(
-		s: &'s mut S,
-		p: P,
-		district_map: &HashMap<DistrictId, Arc<DistrictInfo>>,
-		data: &mut RawVaccinationData,
+	s: &'s mut S,
+	p: P,
+	district_map: &HashMap<DistrictId, Arc<DistrictInfo>>,
+	data: &mut RawVaccinationData,
 ) -> io::Result<()> {
 	let r = covid::magic_open(p)?;
 	let mut r = csv::Reader::from_reader(r);
@@ -643,19 +822,18 @@ fn load_vacc_data<'s, P: AsRef<Path>, S: ProgressSink + ?Sized>(
 		let rec: VaccinationRecord = row?;
 		data.submit(district_map, &rec);
 		if i % 500000 == 499999 {
-			pm.update(i+1);
+			pm.update(i + 1);
 		}
-		n = i+1;
+		n = i + 1;
 	}
 	pm.finish(n);
 	Ok(())
 }
 
-
 fn load_hosp_data<'s, P: AsRef<Path>, S: ProgressSink + ?Sized>(
-		s: &'s mut S,
-		p: P,
-		data: &mut RawHospitalizationData
+	s: &'s mut S,
+	p: P,
+	data: &mut RawHospitalizationData,
 ) -> io::Result<()> {
 	let r = covid::magic_open(p)?;
 	let mut r = csv::Reader::from_reader(r);
@@ -669,19 +847,18 @@ fn load_hosp_data<'s, P: AsRef<Path>, S: ProgressSink + ?Sized>(
 		};
 		data.submit(&rec);
 		if i % 500000 == 499999 {
-			pm.update(i+1);
+			pm.update(i + 1);
 		}
-		n = i+1;
+		n = i + 1;
 	}
 	pm.finish(n);
 	Ok(())
 }
 
-
 fn load_destatis_data<'s, P: AsRef<Path>, S: ProgressSink + ?Sized>(
-		s: &'s mut S,
-		p: P,
-		data: &mut RawPopulationData<(StateId, AgeGroup, Sex)>,
+	s: &'s mut S,
+	p: P,
+	data: &mut RawPopulationData<(StateId, AgeGroup, Sex)>,
 ) -> io::Result<()> {
 	let r = covid::magic_open(p)?;
 	let mut r = csv::Reader::from_reader(r);
@@ -695,14 +872,13 @@ fn load_destatis_data<'s, P: AsRef<Path>, S: ProgressSink + ?Sized>(
 		};
 		data.submit(rec);
 		if i % 100 == 99 {
-			pm.update(i+1);
+			pm.update(i + 1);
 		}
-		n = i+1;
+		n = i + 1;
 	}
 	pm.finish(n);
 	Ok(())
 }
-
 
 fn remap_berlin(id: DistrictId) -> DistrictId {
 	if id >= 11000 && id < 12000 {
@@ -711,7 +887,6 @@ fn remap_berlin(id: DistrictId) -> DistrictId {
 		id
 	}
 }
-
 
 fn load_cooked_case_data(
 	districts: &HashMap<DistrictId, Arc<covid::DistrictInfo>>,
@@ -724,7 +899,12 @@ fn load_cooked_case_data(
 	let cases = {
 		let mut cases = RawCaseData::new(start, end);
 		println!("loading case data ...");
-		load_case_data(&mut *covid::default_output(), casefile, &districts, &mut cases)?;
+		load_case_data(
+			&mut *covid::default_output(),
+			casefile,
+			&districts,
+			&mut cases,
+		)?;
 		cases.remapped(|(state_id, district_id, mag, sex)| {
 			Some((*state_id, remap_berlin(*district_id), *mag, *sex))
 		})
@@ -733,7 +913,12 @@ fn load_cooked_case_data(
 	let diff_cases = {
 		let mut diff_cases = ParboiledCaseData::new(diffstart, end);
 		println!("loading diff data ...");
-		load_diff_data(&mut *covid::default_output(), difffile, &districts, &mut diff_cases)?;
+		load_diff_data(
+			&mut *covid::default_output(),
+			difffile,
+			&districts,
+			&mut diff_cases,
+		)?;
 		diff_cases.remapped(|(state_id, district_id, mag, sex)| {
 			Some((*state_id, remap_berlin(*district_id), *mag, *sex))
 		})
@@ -744,7 +929,6 @@ fn load_cooked_case_data(
 
 	Ok(cooked_cases)
 }
-
 
 fn load_cooked_hosp_data(
 	start: NaiveDate,
@@ -759,7 +943,6 @@ fn load_cooked_hosp_data(
 	Ok(cooked_hosp)
 }
 
-
 fn load_cooked_divi_data(
 	start: NaiveDate,
 	end: NaiveDate,
@@ -768,12 +951,10 @@ fn load_cooked_divi_data(
 	let mut icu_load = RawICULoadData::new(start, end);
 	println!("loading ICU data ...");
 	load_divi_load_data(&mut *covid::default_output(), divifile, &mut icu_load)?;
-	let icu_load = icu_load.rekeyed(|(state_id, district_id)| {
-		Some((*state_id, remap_berlin(*district_id)))
-	});
+	let icu_load =
+		icu_load.rekeyed(|(state_id, district_id)| Some((*state_id, remap_berlin(*district_id))));
 	Ok(CookedICULoadData::cook(icu_load))
 }
-
 
 fn load_cooked_vacc_data(
 	districts: &HashMap<DistrictId, Arc<covid::DistrictInfo>>,
@@ -783,13 +964,17 @@ fn load_cooked_vacc_data(
 ) -> Result<CookedVaccinationData<VaccinationKey>, io::Error> {
 	let mut vacc = RawVaccinationData::new(start, end);
 	println!("loading vaccination data ...");
-	load_vacc_data(&mut *covid::default_output(), vaccfile, &districts, &mut vacc)?;
+	load_vacc_data(
+		&mut *covid::default_output(),
+		vaccfile,
+		&districts,
+		&mut vacc,
+	)?;
 	let vacc = vacc.remapped(|(state_id, district_id, ag)| {
 		Some((*state_id, district_id.map(remap_berlin), *ag))
 	});
 	Ok(CookedVaccinationData::cook(vacc))
 }
-
 
 fn load_all_data(
 	states: &HashMap<DistrictId, Arc<covid::StateInfo>>,
@@ -803,15 +988,18 @@ fn load_all_data(
 	vaccfile: &str,
 	hospfile: &str,
 	destatisfile: &str,
-) -> Result<(
-	CookedPopulationData<GeoCaseKey>,
-	CookedPopulationData<(StateId, AgeGroup)>,
-	CookedPopulationData<(StateId, AgeGroup, Sex)>,
-	CookedCaseData<FullCaseKey>,
-	CookedVaccinationData<VaccinationKey>,
-	CookedHospitalizationData<(StateId, AgeGroup)>,
-	CookedICULoadData<GeoCaseKey>,
-), io::Error> {
+) -> Result<
+	(
+		CookedPopulationData<GeoCaseKey>,
+		CookedPopulationData<(StateId, AgeGroup)>,
+		CookedPopulationData<(StateId, AgeGroup, Sex)>,
+		CookedCaseData<FullCaseKey>,
+		CookedVaccinationData<VaccinationKey>,
+		CookedHospitalizationData<(StateId, AgeGroup)>,
+		CookedICULoadData<GeoCaseKey>,
+	),
+	io::Error,
+> {
 	assert!(diffstart >= start);
 	assert!(end >= diffstart);
 
@@ -822,9 +1010,8 @@ fn load_all_data(
 		population.count.get_or_create(k).fill(district.population);
 	}
 	let cooked_population = CookedPopulationData::cook(
-		population.remapped(|(state_id, district_id)| {
-			Some((*state_id, remap_berlin(*district_id)))
-		})
+		population
+			.remapped(|(state_id, district_id)| Some((*state_id, remap_berlin(*district_id)))),
 	);
 
 	// We inject berlin only later. This allows us to rekey the population above to eliminate the separate berlin districts.
@@ -832,72 +1019,87 @@ fn load_all_data(
 
 	let mut destatis_population = RawPopulationData::new();
 	println!("loading destatis population data ...");
-	load_destatis_data(&mut *covid::default_output(), destatisfile, &mut destatis_population)?;
+	load_destatis_data(
+		&mut *covid::default_output(),
+		destatisfile,
+		&mut destatis_population,
+	)?;
 
-	let cooked_vacc_population = CookedPopulationData::cook(
-		destatis_population.remapped(|(state_id, ag, _)| {
+	let cooked_vacc_population =
+		CookedPopulationData::cook(destatis_population.remapped(|(state_id, ag, _)| {
 			assert!(ag.high.is_none() || ag.low == ag.high.unwrap());
 			let age = ag.low;
 			let ag = if age < 5 {
-				AgeGroup{low: 0, high: Some(4)}
+				AgeGroup {
+					low: 0,
+					high: Some(4),
+				}
 			} else if age < 12 {
-				AgeGroup{low: 5, high: Some(11)}
+				AgeGroup {
+					low: 5,
+					high: Some(11),
+				}
 			} else if age < 18 {
-				AgeGroup{low: 12, high: Some(17)}
+				AgeGroup {
+					low: 12,
+					high: Some(17),
+				}
 			} else if age < 60 {
-				AgeGroup{low: 18, high: Some(59)}
+				AgeGroup {
+					low: 18,
+					high: Some(59),
+				}
 			} else {
-				AgeGroup{low: 60, high: None}
+				AgeGroup {
+					low: 60,
+					high: None,
+				}
 			};
 			Some((*state_id, ag))
-		})
-	);
-	let cooked_demo_population = CookedPopulationData::cook(
-		destatis_population.remapped(|(state_id, ag, sex)| {
+		}));
+	let cooked_demo_population =
+		CookedPopulationData::cook(destatis_population.remapped(|(state_id, ag, sex)| {
 			assert!(ag.high.is_none() || ag.low == ag.high.unwrap());
 			let age = ag.low;
 			let ag = if age < 5 {
-				AgeGroup{low: 0, high: Some(4)}
+				AgeGroup {
+					low: 0,
+					high: Some(4),
+				}
 			} else if age < 15 {
-				AgeGroup{low: 5, high: Some(14)}
+				AgeGroup {
+					low: 5,
+					high: Some(14),
+				}
 			} else if age < 35 {
-				AgeGroup{low: 15, high: Some(34)}
+				AgeGroup {
+					low: 15,
+					high: Some(34),
+				}
 			} else if age < 60 {
-				AgeGroup{low: 35, high: Some(59)}
+				AgeGroup {
+					low: 35,
+					high: Some(59),
+				}
 			} else if age < 80 {
-				AgeGroup{low: 60, high: Some(79)}
+				AgeGroup {
+					low: 60,
+					high: Some(79),
+				}
 			} else {
-				AgeGroup{low: 80, high: None}
+				AgeGroup {
+					low: 80,
+					high: None,
+				}
 			};
 			Some((*state_id, ag, *sex))
-		})
-	);
+		}));
 	drop(destatis_population);
 
-	let cooked_cases = load_cooked_case_data(
-		districts,
-		start,
-		diffstart,
-		end,
-		casefile,
-		difffile,
-	)?;
-	let cooked_vacc = load_cooked_vacc_data(
-		districts,
-		start,
-		end,
-		vaccfile,
-	)?;
-	let cooked_icu_load = load_cooked_divi_data(
-		start,
-		end,
-		divifile,
-	)?;
-	let cooked_hosp = load_cooked_hosp_data(
-		start,
-		end,
-		hospfile,
-	)?;
+	let cooked_cases = load_cooked_case_data(districts, start, diffstart, end, casefile, difffile)?;
+	let cooked_vacc = load_cooked_vacc_data(districts, start, end, vaccfile)?;
+	let cooked_icu_load = load_cooked_divi_data(start, end, divifile)?;
+	let cooked_hosp = load_cooked_hosp_data(start, end, hospfile)?;
 
 	Ok((
 		cooked_population,
@@ -909,7 +1111,6 @@ fn load_all_data(
 		cooked_icu_load,
 	))
 }
-
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
 	let argv: Vec<String> = std::env::args().collect();
@@ -931,28 +1132,27 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 	let end = naive_today();
 	let ndays: usize = (end - start).num_days().try_into().unwrap();
 
-	let (population, population_vacc, population_demo, cases, vacc, hosp, icu_load) = load_all_data(
-		&states,
-		&mut districts,
-		start,
-		diffstart,
-		end,
-		casefile,
-		difffile,
-		divifile,
-		vaccfile,
-		hospfile,
-		destatisfile,
-	)?;
+	let (population, population_vacc, population_demo, cases, vacc, hosp, icu_load) =
+		load_all_data(
+			&states,
+			&mut districts,
+			start,
+			diffstart,
+			end,
+			casefile,
+			difffile,
+			divifile,
+			vaccfile,
+			hospfile,
+			destatisfile,
+		)?;
 
 	let client = covid::env_client();
 
 	{
 		println!("preparing {} ...", GEO_MEASUREMENT_NAME);
 
-		let cases = cases.rekeyed(|(state_id, district_id, _, _)| {
-			Some((*state_id, *district_id))
-		});
+		let cases = cases.rekeyed(|(state_id, district_id, _, _)| Some((*state_id, *district_id)));
 		let vacc = vacc.rekeyed(|(state_id, district_id, _)| {
 			// drop vaccinations without properly defined state + district
 			match (state_id, district_id) {
@@ -961,10 +1161,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 			}
 		});
 		let keys: Vec<_> = covid::prepare_keyset(
-			&[
-				"state",
-				"district",
-			][..],
+			&["state", "district"][..],
 			population.count.keys(),
 			|k, out| {
 				let state_id = k.0;
@@ -979,7 +1176,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 			},
 		);
 
-		println!("streaming {} ...",GEO_MEASUREMENT_NAME);
+		println!("streaming {} ...", GEO_MEASUREMENT_NAME);
 
 		let mut fields = Vec::new();
 		cases.write_field_descriptors(&mut fields);
@@ -1001,9 +1198,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 	{
 		println!("preparing {} ...", GEO_LIGHT_MEASUREMENT_NAME);
 
-		let cases = cases.rekeyed(|(state_id, _, _, _)| {
-			Some(*state_id)
-		});
+		let cases = cases.rekeyed(|(state_id, _, _, _)| Some(*state_id));
 		let vacc = vacc.rekeyed(|(state_id, district_id, _)| {
 			// drop vaccinations without properly defined state + district
 			match (state_id, district_id) {
@@ -1011,26 +1206,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 				_ => None,
 			}
 		});
-		let icu_load = icu_load.rekeyed(|(state_id, _)| {
-			Some(*state_id)
-		});
-		let hosp = hosp.rekeyed(|(state_id, _)| {
-			Some(*state_id)
-		});
-		let population = Arc::new(population.rekeyed(|(state_id, _)| {
-			Some(*state_id)
-		}));
-		let keys: Vec<_> = covid::prepare_keyset(
-			&[
-				"state",
-			][..],
-			population.count.keys(),
-			|k, out| {
+		let icu_load = icu_load.rekeyed(|(state_id, _)| Some(*state_id));
+		let hosp = hosp.rekeyed(|(state_id, _)| Some(*state_id));
+		let population = Arc::new(population.rekeyed(|(state_id, _)| Some(*state_id)));
+		let keys: Vec<_> =
+			covid::prepare_keyset(&["state"][..], population.count.keys(), |k, out| {
 				let state_id = k;
 				let state_name = &states.get(&state_id).unwrap().name;
 				out.push(state_name.into());
-			},
-		);
+			});
 
 		println!("streaming {} ...", GEO_LIGHT_MEASUREMENT_NAME);
 
@@ -1055,17 +1239,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 	{
 		println!("preparing {} ...", DEMO_MEASUREMENT_NAME);
 
-		let new_cases = cases.rekeyed(|(state_id, _, ag, s)| {
-			Some((*state_id, (**ag)?, *s))
-		});
+		let new_cases = cases.rekeyed(|(state_id, _, ag, s)| Some((*state_id, (**ag)?, *s)));
 		drop(cases);
 		let cases = new_cases;
 		let keys: Vec<_> = covid::prepare_keyset(
-			&[
-				"state",
-				"age",
-				"sex",
-			][..],
+			&["state", "age", "sex"][..],
 			population_demo.count.keys(),
 			|k, out| {
 				let state_id = k.0;
@@ -1104,10 +1282,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 			}
 		});
 		let keys: Vec<_> = covid::prepare_keyset(
-			&[
-				"state",
-				"age",
-			][..],
+			&["state", "age"][..],
 			population_vacc.count.keys(),
 			|k, out| {
 				let state_id = k.0;

@@ -1,9 +1,8 @@
-use serde::{Deserialize};
+use serde::Deserialize;
 
 use chrono::naive::NaiveDate;
 
-use super::context::{StateId, DistrictId};
-
+use super::context::{DistrictId, StateId};
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct ICULoadRecord {
@@ -30,7 +29,6 @@ pub struct ICULoadRecord {
 	pub beds_free_adult_only: u32,
 }
 
-
 /* fn divi_date_compat<'de, D>(deserializer: D) -> Result<NaiveDate, D::Error>
 	where D: Deserializer<'de>
 {
@@ -48,7 +46,6 @@ pub struct ICULoadRecord {
 		Err(de::Error::custom("invalid length for date, must be eiter 10 or 19 bytes"))
 	}
 } */
-
 
 /* #[derive(Debug, Clone, Deserialize)]
 pub struct ICUUnavailableReasonRecord {

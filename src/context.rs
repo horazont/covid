@@ -8,7 +8,6 @@ use serde::{de, Deserialize, Deserializer};
 pub type DistrictId = u32;
 pub type StateId = u32;
 
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Deserialize)]
 pub enum Sex {
 	#[serde(rename = "M")]
@@ -64,19 +63,20 @@ impl FromStr for MaybeDistrictId {
 
 	fn from_str(s: &str) -> Result<Self, Self::Err> {
 		if s == "u" {
-			return Ok(MaybeDistrictId(None))
+			return Ok(MaybeDistrictId(None));
 		}
 		Ok(MaybeDistrictId(Some(s.parse::<DistrictId>()?)))
 	}
 }
 
 impl<'de> Deserialize<'de> for MaybeDistrictId {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-        where D: Deserializer<'de>
-    {
-        let s = String::deserialize(deserializer)?;
-        FromStr::from_str(&s).map_err(de::Error::custom)
-    }
+	fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+	where
+		D: Deserializer<'de>,
+	{
+		let s = String::deserialize(deserializer)?;
+		FromStr::from_str(&s).map_err(de::Error::custom)
+	}
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -84,7 +84,6 @@ pub struct AgeGroup {
 	pub low: u16,
 	pub high: Option<u16>,
 }
-
 
 #[derive(Debug, Clone)]
 pub enum ParseAgeGroupError {
@@ -139,20 +138,18 @@ impl From<ParseIntError> for ParseAgeGroupError {
 	}
 }
 
-
 impl FromStr for AgeGroup {
 	type Err = ParseAgeGroupError;
 
 	fn from_str(s: &str) -> Result<Self, Self::Err> {
-		let s = if s.starts_with("A") {
-			&s[1..]
-		} else {
-			s
-		};
+		let s = if s.starts_with("A") { &s[1..] } else { s };
 		if s.ends_with("+") {
-			let num = &s[..(s.len()-1)];
+			let num = &s[..(s.len() - 1)];
 			let lower_bound = FromStr::from_str(num)?;
-			return Ok(Self{low: lower_bound, high: None})
+			return Ok(Self {
+				low: lower_bound,
+				high: None,
+			});
 		}
 		let (low, high) = match s.split_once('-') {
 			Some(v) => v,
@@ -189,26 +186,28 @@ impl fmt::Display for MaybeAgeGroup {
 	}
 }
 
-
 impl<'de> Deserialize<'de> for AgeGroup {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-        where D: Deserializer<'de>
-    {
-        let s = String::deserialize(deserializer)?;
-        FromStr::from_str(&s).map_err(de::Error::custom)
-    }
+	fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+	where
+		D: Deserializer<'de>,
+	{
+		let s = String::deserialize(deserializer)?;
+		FromStr::from_str(&s).map_err(de::Error::custom)
+	}
 }
 
-
 impl<'de> Deserialize<'de> for MaybeAgeGroup {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-        where D: Deserializer<'de>
-    {
-        let s = String::deserialize(deserializer)?;
-        if s == "unbekannt" || s == "u" {
-			return Ok(MaybeAgeGroup(None))
+	fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+	where
+		D: Deserializer<'de>,
+	{
+		let s = String::deserialize(deserializer)?;
+		if s == "unbekannt" || s == "u" {
+			return Ok(MaybeAgeGroup(None));
 		} else {
-			return Ok(MaybeAgeGroup(Some(FromStr::from_str(&s).map_err(de::Error::custom)?)))
+			return Ok(MaybeAgeGroup(Some(
+				FromStr::from_str(&s).map_err(de::Error::custom)?,
+			)));
 		}
-    }
+	}
 }

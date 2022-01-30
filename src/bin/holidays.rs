@@ -1,18 +1,16 @@
 use std::io;
 
-use smartstring::alias::{String as SmartString};
+use smartstring::alias::String as SmartString;
 
-use chrono::{NaiveDate, Utc, TimeZone, Datelike};
+use chrono::{Datelike, NaiveDate, TimeZone, Utc};
 
 use serde::Deserialize;
 
 use csv;
 
-use covid::{ProgressSink, CountMeter};
-
+use covid::{CountMeter, ProgressSink};
 
 static EVENTS_MEASUREMENT: &'static str = "events_v1";
-
 
 #[derive(Debug, Clone, Deserialize)]
 struct HolidayRecord {
@@ -22,51 +20,41 @@ struct HolidayRecord {
 	end: NaiveDate,
 }
 
-
 fn stream_holidays<R: io::Read, S: ProgressSink + ?Sized>(
 	s: &mut S,
 	mut r: csv::Reader<R>,
 	client: &covid::influxdb::Client,
 ) -> io::Result<()> {
-	let tags: Vec<SmartString> = vec![
-		"state".into(),
-		"is_holiday".into(),
-		"holiday_kind".into(),
-	];
-	let fields: Vec<SmartString> = vec![
-		"text".into(),
-		"end".into(),
-	];
+	let tags: Vec<SmartString> = vec!["state".into(), "is_holiday".into(), "holiday_kind".into()];
+	let fields: Vec<SmartString> = vec!["text".into(), "end".into()];
 
 	let mut pm = CountMeter::new(s);
 	let mut n = 0;
 	let mut readout_buf = Vec::with_capacity(16);
 	for (i, row) in r.deserialize().enumerate() {
 		let rec: HolidayRecord = row?;
-		let start = Utc.ymd(rec.start.year(), rec.start.month(), rec.start.day()).and_hms(0, 0, 0);
-		let end = Utc.ymd(rec.end.year(), rec.end.month(), rec.end.day()).and_hms(0, 0, 0);
+		let start = Utc
+			.ymd(rec.start.year(), rec.start.month(), rec.start.day())
+			.and_hms(0, 0, 0);
+		let end = Utc
+			.ymd(rec.end.year(), rec.end.month(), rec.end.day())
+			.and_hms(0, 0, 0);
 		if (end - start).num_days() < 3 {
-			continue
+			continue;
 		}
-		readout_buf.push(covid::influxdb::Readout{
+		readout_buf.push(covid::influxdb::Readout {
 			ts: start,
 			measurement: EVENTS_MEASUREMENT.into(),
 			precision: covid::influxdb::Precision::Seconds,
 			fields: fields.clone(),
 			tags: tags.clone(),
-			samples: vec![
-				covid::influxdb::Sample{
-					fieldv: vec![
-						format!("{}\n\n<sup>{}</sup>", rec.holiday, rec.state).into(),
-						format!("{}000", end.timestamp()).into(),
-					],
-					tagv: vec![
-						rec.state,
-						"true".into(),
-						rec.holiday,
-					],
-				},
-			],
+			samples: vec![covid::influxdb::Sample {
+				fieldv: vec![
+					format!("{}\n\n<sup>{}</sup>", rec.holiday, rec.state).into(),
+					format!("{}000", end.timestamp()).into(),
+				],
+				tagv: vec![rec.state, "true".into(), rec.holiday],
+			}],
 		});
 		if readout_buf.len() == readout_buf.capacity() {
 			client.post(
@@ -77,7 +65,7 @@ fn stream_holidays<R: io::Read, S: ProgressSink + ?Sized>(
 				&readout_buf[..],
 			)?;
 			readout_buf.clear();
-			pm.update(i+1);
+			pm.update(i + 1);
 		}
 		n = i + 1;
 	}
@@ -94,7 +82,6 @@ fn stream_holidays<R: io::Read, S: ProgressSink + ?Sized>(
 	Ok(())
 }
 
-
 fn main() -> Result<(), Box<dyn std::error::Error>> {
 	let argv: Vec<String> = std::env::args().collect();
 	let client = covid::env_client();
@@ -102,11 +89,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 		println!("streaming {} to influxdb ...", name);
 		let r = covid::magic_open(name)?;
 		let r = csv::Reader::from_reader(r);
-		stream_holidays(
-			&mut *covid::default_output(),
-			r,
-			&client,
-		)?;
+		stream_holidays(&mut *covid::default_output(), r, &client)?;
 	}
 	Ok(())
 }

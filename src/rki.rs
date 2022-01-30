@@ -1,17 +1,16 @@
 use std::collections::HashMap;
+use std::hash::Hash;
 use std::io;
 use std::sync::Arc;
-use std::hash::Hash;
 
 use serde::{de, Deserialize, Deserializer};
 
 use chrono::naive::NaiveDate;
 
-use super::context::{StateId, DistrictId, AgeGroup, MaybeAgeGroup, MaybeDistrictId, Sex};
+use super::context::{AgeGroup, DistrictId, MaybeAgeGroup, MaybeDistrictId, Sex, StateId};
 
 pub type FullCaseKey = (StateId, DistrictId, MaybeAgeGroup, Sex);
 pub type GeoCaseKey = (StateId, DistrictId);
-
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Deserialize)]
 pub enum ReportFlag {
@@ -37,7 +36,8 @@ impl ReportFlag {
 }
 
 fn legacy_date_compat<'de, D>(deserializer: D) -> Result<NaiveDate, D::Error>
-	where D: Deserializer<'de>
+where
+	D: Deserializer<'de>,
 {
 	let mut s = String::deserialize(deserializer)?;
 	if s.len() == 10 {
@@ -49,7 +49,9 @@ fn legacy_date_compat<'de, D>(deserializer: D) -> Result<NaiveDate, D::Error>
 		let s = s.replace("/", "-");
 		s.parse::<NaiveDate>().map_err(de::Error::custom)
 	} else {
-		Err(de::Error::custom("invalid length for date, must be eiter 10 or 19 bytes"))
+		Err(de::Error::custom(
+			"invalid length for date, must be eiter 10 or 19 bytes",
+		))
 	}
 }
 
@@ -61,9 +63,9 @@ pub struct InfectionRecord {
 	pub age_group: MaybeAgeGroup,
 	#[serde(rename = "Geschlecht")]
 	pub sex: Sex,
-	#[serde(rename = "Meldedatum", deserialize_with="legacy_date_compat")]
+	#[serde(rename = "Meldedatum", deserialize_with = "legacy_date_compat")]
 	pub report_date: NaiveDate,
-	#[serde(rename = "Refdatum", deserialize_with="legacy_date_compat")]
+	#[serde(rename = "Refdatum", deserialize_with = "legacy_date_compat")]
 	pub reference_date: NaiveDate,
 	#[serde(rename = "IstErkrankungsbeginn")]
 	pub is_start_of_case: u8,
@@ -81,13 +83,11 @@ pub struct InfectionRecord {
 	pub recovered_count: i32,
 }
 
-
 #[derive(Debug, Clone)]
 pub struct StateInfo {
 	pub id: DistrictId,
 	pub name: String,
 }
-
 
 #[derive(Debug, Clone)]
 pub struct DistrictInfo {
@@ -96,7 +96,6 @@ pub struct DistrictInfo {
 	pub state: Arc<StateInfo>,
 	pub population: u64,
 }
-
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct RawDistrictRow {
@@ -112,8 +111,15 @@ pub struct RawDistrictRow {
 	pub population: u64,
 }
 
-
-pub fn load_rki_districts<R: io::Read>(r: &mut R) -> Result<(HashMap<DistrictId, Arc<StateInfo>>, HashMap<DistrictId, Arc<DistrictInfo>>), io::Error> {
+pub fn load_rki_districts<R: io::Read>(
+	r: &mut R,
+) -> Result<
+	(
+		HashMap<DistrictId, Arc<StateInfo>>,
+		HashMap<DistrictId, Arc<DistrictInfo>>,
+	),
+	io::Error,
+> {
 	let mut states: HashMap<DistrictId, Arc<StateInfo>> = HashMap::new();
 	let mut districts = HashMap::new();
 	let mut r = csv::Reader::from_reader(r);
@@ -122,15 +128,15 @@ pub fn load_rki_districts<R: io::Read>(r: &mut R) -> Result<(HashMap<DistrictId,
 		let state_entry = match states.get(&rec.state_id) {
 			Some(e) => e.clone(),
 			None => {
-				let state = Arc::new(StateInfo{
+				let state = Arc::new(StateInfo {
 					id: rec.state_id,
 					name: rec.state_name,
 				});
 				states.insert(rec.state_id, state.clone());
 				state
-			},
+			}
 		};
-		let district = Arc::new(DistrictInfo{
+		let district = Arc::new(DistrictInfo {
 			id: rec.district_id,
 			name: rec.district_name,
 			population: rec.population,
@@ -176,10 +182,24 @@ impl DiffRecord {
 	}
 
 	pub fn write<W: io::Write>(&self, w: &mut W) -> io::Result<()> {
-		write!(w, "{},{},{},{},{},{},{},{},{},{},{},{}\n", self.date, self.district_id, self.age_group, self.sex, self.delay_total, self.cases_delayed, self.late_cases, self.cases, self.deaths, self.recovered, self.cases_rep_d7, self.cases_retracted)
+		write!(
+			w,
+			"{},{},{},{},{},{},{},{},{},{},{},{}\n",
+			self.date,
+			self.district_id,
+			self.age_group,
+			self.sex,
+			self.delay_total,
+			self.cases_delayed,
+			self.late_cases,
+			self.cases,
+			self.deaths,
+			self.recovered,
+			self.cases_rep_d7,
+			self.cases_retracted
+		)
 	}
 }
-
 
 pub type VaccinationKey = (Option<StateId>, Option<DistrictId>, MaybeAgeGroup);
 
@@ -207,7 +227,6 @@ pub struct VaccinationRecord {
 	pub count: u64,
 }
 
-
 #[derive(Debug, Clone, Deserialize)]
 pub struct HospitalizationRecord {
 	#[serde(rename = "Datum")]
@@ -220,13 +239,14 @@ pub struct HospitalizationRecord {
 	pub cases_d7: u64,
 }
 
-
-pub fn find_berlin_districts(districts: &HashMap<DistrictId, Arc<DistrictInfo>>) -> Vec<GeoCaseKey> {
+pub fn find_berlin_districts(
+	districts: &HashMap<DistrictId, Arc<DistrictInfo>>,
+) -> Vec<GeoCaseKey> {
 	let mut result = Vec::new();
 	for district in districts.values() {
 		let state_id = district.state.id;
 		if state_id != 11 {
-			continue
+			continue;
 		}
 
 		result.push((state_id, district.id));
@@ -235,8 +255,8 @@ pub fn find_berlin_districts(districts: &HashMap<DistrictId, Arc<DistrictInfo>>)
 }
 
 pub fn inject_berlin(
-		states: &HashMap<DistrictId, Arc<StateInfo>>,
-		districts: &mut HashMap<DistrictId, Arc<DistrictInfo>>,
+	states: &HashMap<DistrictId, Arc<StateInfo>>,
+	districts: &mut HashMap<DistrictId, Arc<DistrictInfo>>,
 ) {
 	let mut total_pop = 0;
 	for (id, district) in districts.iter() {
@@ -245,10 +265,13 @@ pub fn inject_berlin(
 		}
 	}
 
-	districts.insert(11000, Arc::new(DistrictInfo{
-		id: 11000,
-		state: states.get(&11).unwrap().clone(),
-		name: "SK Berlin".into(),
-		population: total_pop,
-	}));
+	districts.insert(
+		11000,
+		Arc::new(DistrictInfo {
+			id: 11000,
+			state: states.get(&11).unwrap().clone(),
+			name: "SK Berlin".into(),
+			population: total_pop,
+		}),
+	);
 }

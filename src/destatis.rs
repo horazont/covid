@@ -1,63 +1,64 @@
 use serde::{de, Deserialize, Deserializer, Serialize};
 
-use super::context::{StateId, AgeGroup, Sex};
-
+use super::context::{AgeGroup, Sex, StateId};
 
 fn destatis_age_group<'de, D>(deserializer: D) -> Result<AgeGroup, D::Error>
-	where D: Deserializer<'de>
+where
+	D: Deserializer<'de>,
 {
 	let s = String::deserialize(deserializer)?;
 	if !s.starts_with("ALT") {
-		return Err(de::Error::custom("destatis age must start with ALT"))
+		return Err(de::Error::custom("destatis age must start with ALT"));
 	}
 	let low_s = &s[3..6];
 	let low = low_s.parse::<u16>().map_err(de::Error::custom)?;
 	if s.ends_with("UM") {
-		Ok(AgeGroup{low, high: None})
+		Ok(AgeGroup { low, high: None })
 	} else {
-		Ok(AgeGroup{low, high: Some(low)})
+		Ok(AgeGroup {
+			low,
+			high: Some(low),
+		})
 	}
 }
 
-
 fn destatis_sex<'de, D>(deserializer: D) -> Result<Sex, D::Error>
-	where D: Deserializer<'de>
+where
+	D: Deserializer<'de>,
 {
 	let s = String::deserialize(deserializer)?;
 	if !s.starts_with("GES") {
-		return Err(de::Error::custom("destatis sex must start with GES"))
+		return Err(de::Error::custom("destatis sex must start with GES"));
 	}
 	match s.as_bytes()[3] {
 		b'M' => Ok(Sex::Male),
 		b'W' | b'F' => Ok(Sex::Female),
-		_ => Err(de::Error::custom("unrecognized destatis sex"))
+		_ => Err(de::Error::custom("unrecognized destatis sex")),
 	}
 }
 
-
 fn destatis_month<'de, D>(deserializer: D) -> Result<u32, D::Error>
-	where D: Deserializer<'de>
+where
+	D: Deserializer<'de>,
 {
 	let s = String::deserialize(deserializer)?;
 	if !s.starts_with("MONAT") {
-		return Err(de::Error::custom("destatis month must start with MONAT"))
+		return Err(de::Error::custom("destatis month must start with MONAT"));
 	}
 	let low_s = &s[5..7];
 	Ok(low_s.parse::<u32>().map_err(de::Error::custom)?)
 }
 
-
 fn destatis_maybe_f64<'de, D>(deserializer: D) -> Result<Option<f64>, D::Error>
-	where D: Deserializer<'de>
+where
+	D: Deserializer<'de>,
 {
 	let s = String::deserialize(deserializer)?;
 	if s == "..." {
-		return Ok(None)
+		return Ok(None);
 	}
 	Ok(Some(s.parse::<f64>().map_err(de::Error::custom)?))
 }
-
-
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct RawDestatisRow {
@@ -71,17 +72,18 @@ pub struct RawDestatisRow {
 	pub count: u64,
 }
 
-
 #[derive(Debug, Clone, Deserialize)]
 pub struct RawDestatisDeathByMonthRow {
 	#[serde(rename = "Zeit")]
 	pub year: i32,
 	#[serde(rename = "2_Auspraegung_Code", deserialize_with = "destatis_month")]
 	pub month: u32,
-	#[serde(rename = "BEV074__Sterbefaelle_je_1000_Einwohner__Anzahl", deserialize_with = "destatis_maybe_f64")]
+	#[serde(
+		rename = "BEV074__Sterbefaelle_je_1000_Einwohner__Anzahl",
+		deserialize_with = "destatis_maybe_f64"
+	)]
 	pub death_incidence_per_1k: Option<f64>,
 }
-
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DestatisDeathHistoric {
@@ -117,7 +119,7 @@ impl DestatisDeathHistoric {
 			// if odd, this will select the center element, as / will implicitly round down and the index is zero-based
 			sl[sl.len() / 2]
 		};
-		Self{
+		Self {
 			month,
 			min: sl[0],
 			mean,

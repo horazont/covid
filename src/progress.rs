@@ -4,7 +4,6 @@ use std::time;
 
 use isatty;
 
-
 pub struct NullSink();
 
 impl ProgressSink for NullSink {
@@ -33,7 +32,7 @@ pub struct StepMeter<'x, S: ProgressSink + ?Sized> {
 impl<'x, S: ProgressSink + ?Sized> StepMeter<'x, S> {
 	pub fn new(s: &'x mut S, n: usize) -> Self {
 		let t0 = time::Instant::now();
-		Self{
+		Self {
 			s,
 			t0,
 			tprev: t0,
@@ -49,13 +48,18 @@ impl<'x, S: ProgressSink + ?Sized> StepMeter<'x, S> {
 		self.iprev = inow;
 		self.tprev = tnow;
 
-		self.s.update(Status::Step(inow, self.n), tnow - self.t0, (di as f64) / dt);
+		self.s
+			.update(Status::Step(inow, self.n), tnow - self.t0, (di as f64) / dt);
 	}
 
 	pub fn finish(self) {
 		let tnow = time::Instant::now();
 		let dt = (tnow - self.t0).as_secs_f64();
-		self.s.update(Status::Step(self.n, self.n), tnow - self.t0, self.n as f64 / dt);
+		self.s.update(
+			Status::Step(self.n, self.n),
+			tnow - self.t0,
+			self.n as f64 / dt,
+		);
 		self.s.finish();
 	}
 }
@@ -70,7 +74,7 @@ pub struct CountMeter<'x, S: ProgressSink + ?Sized> {
 impl<'x, S: ProgressSink + ?Sized> CountMeter<'x, S> {
 	pub fn new(s: &'x mut S) -> Self {
 		let t0 = time::Instant::now();
-		Self{
+		Self {
 			s,
 			t0,
 			tprev: t0,
@@ -85,13 +89,15 @@ impl<'x, S: ProgressSink + ?Sized> CountMeter<'x, S> {
 		self.iprev = inow;
 		self.tprev = tnow;
 
-		self.s.update(Status::Count(inow), tnow - self.t0, (di as f64) / dt);
+		self.s
+			.update(Status::Count(inow), tnow - self.t0, (di as f64) / dt);
 	}
 
 	pub fn finish(self, total: usize) {
 		let tnow = time::Instant::now();
 		let dt = (tnow - self.t0).as_secs_f64();
-		self.s.update(Status::Count(total), tnow - self.t0, total as f64 / dt);
+		self.s
+			.update(Status::Count(total), tnow - self.t0, total as f64 / dt);
 		self.s.finish();
 	}
 }
@@ -100,9 +106,7 @@ impl Status {
 	fn ratio(&self) -> Option<f64> {
 		match self {
 			Self::Count(_) => None,
-			Self::Step(i, n) => {
-				Some((*i as f64) / (*n as f64))
-			},
+			Self::Step(i, n) => Some((*i as f64) / (*n as f64)),
 		}
 	}
 
@@ -124,7 +128,7 @@ pub struct TtySink<W: io::Write> {
 
 impl TtySink<io::Stdout> {
 	pub fn stdout() -> Self {
-		Self{
+		Self {
 			w: io::stdout(),
 			tick: 0,
 			longest_rate: 0,
@@ -149,20 +153,20 @@ impl<W: io::Write> ProgressSink for TtySink<W> {
 		}
 
 		let mut lhs = String::new();
-		lhs.reserve(14+4+4+2);
+		lhs.reserve(14 + 4 + 4 + 2);
 		match ratio {
 			Some(v) => {
-				let _ = write!(lhs, " {:>9.0}% ", v*100.0);
-			},
+				let _ = write!(lhs, " {:>9.0}% ", v * 100.0);
+			}
 			None => match count {
 				Some(c) => {
 					self.tick = (self.tick + 1) % (TICKS.len() as u8);
 					let _ = write!(lhs, "{:>12} {}", c, TICKS[self.tick as usize] as char);
-				},
+				}
 				None => {
 					self.tick = (self.tick + 1) % (TICKS.len() as u8);
 					let _ = write!(lhs, "{}", TICKS[self.tick as usize] as char);
-				},
+				}
 			},
 		}
 
@@ -173,7 +177,7 @@ impl<W: io::Write> ProgressSink for TtySink<W> {
 				lhs.insert_str(0, "\x1b[7m");
 				lhs.insert_str(0, "|");
 				lhs.push_str("|");
-			},
+			}
 			None => (),
 		}
 
@@ -193,10 +197,7 @@ pub struct SummarySink<W: io::Write> {
 
 impl<W: io::Write> SummarySink<W> {
 	fn new(w: W) -> Self {
-		Self{
-			w,
-			last_info: None,
-		}
+		Self { w, last_info: None }
 	}
 }
 
@@ -210,13 +211,23 @@ impl<W: io::Write> ProgressSink for SummarySink<W> {
 			Some((status, elapsed)) => {
 				match status.count() {
 					Some(c) => {
-						write!(self.w, "... processed {} items in {:.2} seconds\n", c, elapsed.as_secs_f64())
-					},
-					None => {
-						write!(self.w, "... operation took {:.2} seconds\n", elapsed.as_secs_f64())
+						write!(
+							self.w,
+							"... processed {} items in {:.2} seconds\n",
+							c,
+							elapsed.as_secs_f64()
+						)
 					}
-				}.expect("failed to write summary to output");
-			},
+					None => {
+						write!(
+							self.w,
+							"... operation took {:.2} seconds\n",
+							elapsed.as_secs_f64()
+						)
+					}
+				}
+				.expect("failed to write summary to output");
+			}
 			None => (),
 		}
 	}
