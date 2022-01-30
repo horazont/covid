@@ -104,6 +104,8 @@ struct ParboiledCaseData {
 	pub cases_delayed: Counters<FullCaseKey>,
 	pub deaths_by_pub: Counters<FullCaseKey>,
 	pub recovered_by_pub: Counters<FullCaseKey>,
+	pub cases_by_pubrep_d7: Counters<FullCaseKey>,
+	pub cases_retracted: Counters<FullCaseKey>,
 }
 
 impl ParboiledCaseData {
@@ -114,6 +116,8 @@ impl ParboiledCaseData {
 			cases_delayed: Counters::new(start, end),
 			deaths_by_pub: Counters::new(start, end),
 			recovered_by_pub: Counters::new(start, end),
+			cases_by_pubrep_d7: Counters::new(start, end),
+			cases_retracted: Counters::new(start, end),
 		}
 	}
 
@@ -135,7 +139,8 @@ impl ParboiledCaseData {
 		self.case_delay_total.get_or_create(k)[ref_index] += rec.delay_total;
 		self.cases_delayed.get_or_create(k)[ref_index] += rec.cases_delayed;
 		self.deaths_by_pub.get_or_create(k)[ref_index] += rec.deaths;
-		self.recovered_by_pub.get_or_create(k)[ref_index] += rec.recovered;
+		self.cases_by_pubrep_d7.get_or_create(k)[ref_index] += rec.cases_rep_d7;
+		self.cases_retracted.get_or_create(k)[ref_index] += rec.cases_retracted;
 	}
 
 	fn remapped<F: Fn(&FullCaseKey) -> Option<FullCaseKey>>(&self, f: F) -> ParboiledCaseData {
@@ -145,6 +150,8 @@ impl ParboiledCaseData {
 			cases_delayed: self.cases_delayed.rekeyed(&f),
 			deaths_by_pub: self.deaths_by_pub.rekeyed(&f),
 			recovered_by_pub: self.recovered_by_pub.rekeyed(&f),
+			cases_by_pubrep_d7: self.cases_by_pubrep_d7.rekeyed(&f),
+			cases_retracted: self.cases_retracted.rekeyed(&f),
 		}
 	}
 }
@@ -159,6 +166,8 @@ struct CookedCaseData<T: TimeSeriesKey> {
 	pub deaths_by_pub: CounterGroup<T>,
 	pub recovered: CounterGroup<T>,
 	pub recovered_by_pub: CounterGroup<T>,
+	pub cases_by_pubrep_d7: Arc<Counters<T>>,
+	pub cases_retracted: Arc<Counters<T>>,
 	diffstart: NaiveDate,
 }
 
@@ -174,6 +183,8 @@ impl CookedCaseData<FullCaseKey> {
 			deaths_by_pub: CounterGroup::from_d1(parboiled.deaths_by_pub),
 			recovered: CounterGroup::from_d1(raw.recovered),
 			recovered_by_pub: CounterGroup::from_d1(parboiled.recovered_by_pub),
+			cases_by_pubrep_d7: Arc::new(parboiled.cases_by_pubrep_d7),
+			cases_retracted: Arc::new(parboiled.cases_retracted),
 			diffstart,
 		}
 	}
@@ -191,6 +202,8 @@ impl<T: TimeSeriesKey> CookedCaseData<T> {
 			deaths_by_pub: self.deaths_by_pub.rekeyed(&f),
 			recovered: self.recovered.rekeyed(&f),
 			recovered_by_pub: self.recovered_by_pub.rekeyed(&f),
+			cases_by_pubrep_d7: Arc::new(self.cases_by_pubrep_d7.rekeyed(&f)),
+			cases_retracted: Arc::new(self.cases_retracted.rekeyed(&f)),
 			diffstart: self.diffstart,
 		}
 	}
@@ -268,6 +281,11 @@ impl<T: TimeSeriesKey + 'static> CookedCaseData<T> {
 		));
 
 		out.push(covid::FieldDescriptor::new(
+			self.clamp_diff(self.cases_by_pubrep_d7.clone(), 7),
+			"cases_pubrep_d7",
+		));
+
+		out.push(covid::FieldDescriptor::new(
 			self.deaths.cum.clone(),
 			"deaths_ref_cum",
 		));
@@ -334,12 +352,16 @@ impl<T: TimeSeriesKey + 'static> CookedCaseData<T> {
 		));
 
 		out.push(covid::FieldDescriptor::new(
-			self.cases_delayed.clone(),
+			self.clamp_diff(self.cases_delayed.clone(), 0),
 			"meta_delay_cases",
 		));
 		out.push(covid::FieldDescriptor::new(
-			self.case_delay_total.clone(),
+			self.clamp_diff(self.case_delay_total.clone(), 0),
 			"meta_delay_total",
+		));
+		out.push(covid::FieldDescriptor::new(
+			self.clamp_diff(self.cases_retracted.clone(), 0),
+			"cases_retracted",
 		));
 	}
 }
