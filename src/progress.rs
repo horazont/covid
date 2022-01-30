@@ -2,7 +2,7 @@ use std::fmt::Write;
 use std::io;
 use std::time;
 
-use isatty;
+use atty;
 
 pub struct NullSink();
 
@@ -234,7 +234,7 @@ impl<W: io::Write> ProgressSink for SummarySink<W> {
 }
 
 pub fn default_output() -> Box<dyn ProgressSink> {
-	if isatty::stdout_isatty() {
+	if atty::is(atty::Stream::Stdout) {
 		Box::new(TtySink::stdout())
 	} else {
 		Box::new(SummarySink::new(io::stdout()))
