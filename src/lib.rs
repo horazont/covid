@@ -89,13 +89,6 @@ pub fn stream_dynamic<K: TimeSeriesKey, S: ProgressSink + ?Sized>(
 	keyset: &[(&K, Bytes)],
 	fields: &[FieldDescriptor<Arc<dyn ViewTimeSeries<K>>>],
 ) -> Result<(), influxdb::Error> {
-	#[cfg(debug_assertions)]
-	{
-		for (_, ts) in keyset.iter() {
-			assert!(ts.len() == tags.len());
-		}
-	}
-
 	static TARGET_METRICS_PER_CHUNK: usize = 5000;
 
 	let chunk_size = (TARGET_METRICS_PER_CHUNK / keyset.len()).max(1);
