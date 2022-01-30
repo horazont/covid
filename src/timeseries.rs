@@ -64,6 +64,11 @@ impl<T: Hash + Eq, V: Copy> TimeSeries<T, V> {
 	pub fn end(&self) -> NaiveDate {
 		self.start + chrono::Duration::days(self.len as i64)
 	}
+
+	pub fn clear(&mut self) {
+		self.keys.clear();
+		self.time_series.clear();
+	}
 }
 
 impl<T: TimeSeriesKey, V: Copy + Zero> TimeSeries<T, V> {

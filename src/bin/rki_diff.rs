@@ -4,7 +4,8 @@ use std::fs::File;
 
 use chrono::NaiveDate;
 
-use covid::{DistrictId, MaybeAgeGroup, Sex, Counters, ReportFlag, InfectionRecord, global_start_date, naive_today, StepMeter, CountMeter, ProgressSink, DiffRecord};
+use covid::{DistrictId, MaybeAgeGroup, Sex, Counters, ReportFlag, InfectionRecord, global_start_date, naive_today, StepMeter, CountMeter, ProgressSink, DiffRecord, ViewTimeSeries};
+use covid::timeseries;
 
 
 type PartialCaseKey = (DistrictId, MaybeAgeGroup, Sex);
@@ -18,6 +19,9 @@ struct PartialDiffData {
 	pub late_cases: Counters<PartialCaseKey>,
 	pub deaths_by_pub: Counters<PartialCaseKey>,
 	pub recovered_by_pub: Counters<PartialCaseKey>,
+	pub cases_by_rep_buf: Counters<PartialCaseKey>,
+	pub cases_by_rep_d7: Counters<PartialCaseKey>,
+	pub cases_retracted: Counters<PartialCaseKey>,
 }
 
 fn saturating_add_u64_i32(reg: &mut u64, v: i32) {
@@ -38,6 +42,9 @@ impl PartialDiffData {
 			late_cases: Counters::new(start, end),
 			deaths_by_pub: Counters::new(start, end),
 			recovered_by_pub: Counters::new(start, end),
+			cases_by_rep_buf: Counters::new(start, end),
+			cases_by_rep_d7: Counters::new(start, end),
+			cases_retracted: Counters::new(start, end),
 		}
 	}
 
@@ -45,10 +52,14 @@ impl PartialDiffData {
 	{
 		let index = self.cases_by_pub.date_index(date).expect("date out of range");
 
-		let (case_index, case_diff) = match rec.case {
-			ReportFlag::NewlyReported => (index, rec.case_count),
+		let (case_index, case_diff, cases_retracted) = match rec.case {
+			ReportFlag::NewlyReported => (index, rec.case_count, 0),
 			// Note: the data is negative in the source already.
-			ReportFlag::Retracted => (index - 1, rec.case_count),
+			ReportFlag::Retracted => (index - 1, rec.case_count, -rec.case_count),
+			_ => (0, 0, 0),
+		};
+		let (rep_case_index, rep_case_diff) = match rec.case {
+			ReportFlag::NewlyReported | ReportFlag::Consistent => (self.cases_by_rep_buf.date_index(rec.report_date).expect("date out of range"), rec.case_count),
 			_ => (0, 0),
 		};
 		let (death_index, death_diff) = match rec.death {
@@ -63,6 +74,16 @@ impl PartialDiffData {
 			ReportFlag::Retracted => (index - 1, rec.recovered_count),
 			_ => (0, 0),
 		};
+
+		let k = (rec.district_id, rec.age_group, rec.sex);
+		if rep_case_diff != 0 {
+			// we don't want to instantiate the key if there's nothing going on
+			saturating_add_u64_i32(&mut self.cases_by_rep_buf.get_or_create(k)[rep_case_index], rep_case_diff);
+		}
+		if cases_retracted != 0 {
+			// we don't want to instantiate the key if there's nothing going on
+			saturating_add_u64_i32(&mut self.cases_retracted.get_or_create(k)[case_index], cases_retracted);
+		}
 
 		if case_diff == 0 && death_diff == 0 && recovered_diff == 0 {
 			return
@@ -82,7 +103,6 @@ impl PartialDiffData {
 			_ => (0, 0, 0),
 		};
 
-		let k = (rec.district_id, rec.age_group, rec.sex);
 		saturating_add_u64_i32(&mut self.cases_by_pub.get_or_create(k)[case_index], case_diff);
 		saturating_add_u64_i32(&mut self.cases_delayed.get_or_create(k)[case_index], case_delay_count);
 		saturating_add_u64_i32(&mut self.case_delay_total.get_or_create(k)[case_index], case_delay * case_delay_count);
@@ -104,7 +124,9 @@ impl PartialDiffData {
 				let late_cases = self.late_cases.get_value(k, i).unwrap_or(0);
 				let deaths = self.deaths_by_pub.get_value(k, i).unwrap_or(0);
 				let recovered = self.recovered_by_pub.get_value(k, i).unwrap_or(0);
-				if cases == 0 && deaths == 0 && recovered == 0 {
+				let cases_rep_d7 = self.cases_by_rep_d7.get_value(k, i).unwrap_or(0);
+				let cases_retracted = self.cases_retracted.get_value(k, i).unwrap_or(0);
+				if cases == 0 && deaths == 0 && recovered == 0 && cases_rep_d7 == 0 && cases_retracted == 0 {
 					continue
 				}
 				let (district_id, age_group, sex) = *k;
@@ -119,6 +141,8 @@ impl PartialDiffData {
 					late_cases,
 					deaths,
 					recovered,
+					cases_rep_d7,
+					cases_retracted,
 				}.write(w)?;
 			}
 			if i % 30 == 29 {
@@ -144,6 +168,8 @@ fn load_existing<R: io::Read, S: ProgressSink + ?Sized>(s: &mut S, r: &mut R, d:
 		d.case_delay_total.get_or_create(k)[index] = rec.delay_total;
 		d.cases_delayed.get_or_create(k)[index] = rec.cases_delayed;
 		d.late_cases.get_or_create(k)[index] = rec.late_cases;
+		d.cases_by_rep_d7.get_or_create(k)[index] = rec.cases_rep_d7;
+		d.cases_retracted.get_or_create(k)[index] = rec.cases_retracted;
 		if i % 500000 == 499999 {
 			pm.update(i+1);
 		}
@@ -169,6 +195,8 @@ fn merge_new<P: AsRef<Path>, S: ProgressSink + ?Sized>(s: &mut S, path: P, date:
 	let mut r = csv::Reader::from_reader(r);
 	let mut pm = CountMeter::new(s);
 	let mut n = 0;
+	// the trick here is that we re-calculate the entire thing on each merge of new data and then carry over the d7 into the cases_by_rep_d7 timeseries
+	d.cases_by_rep_buf.clear();
 	for (i, row) in r.deserialize().enumerate() {
 		let rec: InfectionRecord = row?;
 		d.submit(date, &rec);
@@ -176,6 +204,15 @@ fn merge_new<P: AsRef<Path>, S: ProgressSink + ?Sized>(s: &mut S, path: P, date:
 			pm.update(i+1);
 		}
 		n = i+1;
+	}
+	// and now, we use the cases_by_rep_buf data to form a _d7 which we then write out for *this* date.
+	{
+		d.cases_by_rep_buf.cumsum();
+		let index = d.cases_by_rep_d7.date_index(date).expect("date out of range");
+		let d7 = timeseries::Diff::padded(&d.cases_by_rep_buf, 7, 0.);
+		for k in d.cases_by_rep_buf.keys() {
+			d.cases_by_rep_d7.get_or_create(*k)[index] = d7.getf(k, date).expect("no data") as u64;
+		}
 	}
 	pm.finish(n);
 	Ok(())

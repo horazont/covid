@@ -15,7 +15,7 @@ mod destatis;
 mod rki;
 mod progress;
 mod divi;
-mod timeseries;
+pub mod timeseries;
 
 pub use ioutil::magic_open;
 pub use context::*;

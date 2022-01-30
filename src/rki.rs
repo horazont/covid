@@ -163,16 +163,20 @@ pub struct DiffRecord {
 	pub deaths: u64,
 	#[serde(rename = "AnzahlGenesen")]
 	pub recovered: u64,
+	#[serde(rename = "AnzahlFaelle7Tage")]
+	pub cases_rep_d7: u64,
+	#[serde(rename = "AnzahlZurueckgezogen")]
+	pub cases_retracted: u64,
 }
 
 impl DiffRecord {
 	pub fn write_header<W: io::Write>(w: &mut W) -> io::Result<()> {
-		w.write("Datum,LandkreisId,Altersgruppe,Geschlecht,VerzugGesamt,AnzahlFallVerzoegert,AnzahlFallVerspaetet,AnzahlFall,AnzahlTodesfall,AnzahlGenesen\n".as_bytes())?;
+		w.write("Datum,LandkreisId,Altersgruppe,Geschlecht,VerzugGesamt,AnzahlFallVerzoegert,AnzahlFallVerspaetet,AnzahlFall,AnzahlTodesfall,AnzahlGenesen,AnzahlFaelle7Tage,AnzahlZurueckgezogen\n".as_bytes())?;
 		Ok(())
 	}
 
 	pub fn write<W: io::Write>(&self, w: &mut W) -> io::Result<()> {
-		write!(w, "{},{},{},{},{},{},{},{},{},{}\n", self.date, self.district_id, self.age_group, self.sex, self.delay_total, self.cases_delayed, self.late_cases, self.cases, self.deaths, self.recovered)
+		write!(w, "{},{},{},{},{},{},{},{},{},{},{},{}\n", self.date, self.district_id, self.age_group, self.sex, self.delay_total, self.cases_delayed, self.late_cases, self.cases, self.deaths, self.recovered, self.cases_rep_d7, self.cases_retracted)
 	}
 }
 
