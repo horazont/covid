@@ -1,6 +1,0 @@
-[submodule "rki/vaccination-git"]
-	path = rki/vaccination-git
-	url = https://github.com/robert-koch-institut/COVID-19-Impfungen_in_Deutschland
-[submodule "rki/hospitalization-git"]
-	path = rki/hospitalization-git
-	url = https://github.com/robert-koch-institut/COVID-19-Hospitalisierungen_in_Deutschland
