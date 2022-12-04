@@ -460,6 +460,7 @@ struct RawVaccinationData {
 	pub basic_vacc: Counters<VaccinationKey>,
 	pub full_vacc: Counters<VaccinationKey>,
 	pub fourth_vacc: Counters<VaccinationKey>,
+	pub fifth_vacc: Counters<VaccinationKey>,
 }
 
 impl RawVaccinationData {
@@ -469,6 +470,7 @@ impl RawVaccinationData {
 			basic_vacc: Counters::new(start, end),
 			full_vacc: Counters::new(start, end),
 			fourth_vacc: Counters::new(start, end),
+			fifth_vacc: Counters::new(start, end),
 		}
 	}
 
@@ -495,6 +497,7 @@ impl RawVaccinationData {
 			VaccinationLevel::Basic => &mut self.basic_vacc,
 			VaccinationLevel::Full => &mut self.full_vacc,
 			VaccinationLevel::Fourth => &mut self.fourth_vacc,
+			VaccinationLevel::Fifth => &mut self.fifth_vacc,
 		};
 		let index = ts.date_index(rec.date).expect("date out of range");
 		ts.get_or_create(k)[index] += rec.count;
@@ -509,6 +512,7 @@ impl RawVaccinationData {
 			basic_vacc: self.basic_vacc.rekeyed(&f),
 			full_vacc: self.full_vacc.rekeyed(&f),
 			fourth_vacc: self.fourth_vacc.rekeyed(&f),
+			fifth_vacc: self.fifth_vacc.rekeyed(&f),
 		}
 	}
 }
@@ -519,6 +523,7 @@ struct CookedVaccinationData<T: TimeSeriesKey> {
 	pub basic_vacc_d180: Arc<Diff<Arc<Counters<T>>>>,
 	pub full_vacc: CounterGroup<T>,
 	pub fourth_vacc: CounterGroup<T>,
+	pub fifth_vacc: CounterGroup<T>,
 }
 
 impl CookedVaccinationData<VaccinationKey> {
@@ -531,6 +536,7 @@ impl CookedVaccinationData<VaccinationKey> {
 			basic_vacc_d180,
 			full_vacc: CounterGroup::from_d1(raw.full_vacc),
 			fourth_vacc: CounterGroup::from_d1(raw.fourth_vacc),
+			fifth_vacc: CounterGroup::from_d1(raw.fifth_vacc),
 		}
 	}
 }
@@ -548,6 +554,7 @@ impl<T: TimeSeriesKey> CookedVaccinationData<T> {
 			basic_vacc_d180,
 			full_vacc: self.full_vacc.rekeyed(&f),
 			fourth_vacc: self.fourth_vacc.rekeyed(&f),
+			fifth_vacc: self.fifth_vacc.rekeyed(&f),
 		}
 	}
 }
@@ -627,6 +634,23 @@ impl<T: TimeSeriesKey + 'static> CookedVaccinationData<T> {
 		out.push(covid::FieldDescriptor::new(
 			self.fourth_vacc.d7s7.clone(),
 			"vacc_fourth_d7s7",
+		));
+
+		out.push(covid::FieldDescriptor::new(
+			self.fifth_vacc.cum.clone(),
+			"vacc_fifth_cum",
+		));
+		out.push(covid::FieldDescriptor::new(
+			self.fifth_vacc.d1.clone(),
+			"vacc_fifth_d1",
+		));
+		out.push(covid::FieldDescriptor::new(
+			self.fifth_vacc.d7.clone(),
+			"vacc_fifth_d7",
+		));
+		out.push(covid::FieldDescriptor::new(
+			self.fifth_vacc.d7s7.clone(),
+			"vacc_fifth_d7s7",
 		));
 	}
 }
