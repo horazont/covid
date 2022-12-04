@@ -217,6 +217,8 @@ pub enum VaccinationLevel {
 	Fifth,
 	#[serde(rename = "6")]
 	Sixth,
+	#[serde(rename = "11")]
+	Partial,
 }
 
 #[derive(Debug, Clone, Deserialize)]

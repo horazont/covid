@@ -501,6 +501,11 @@ impl RawVaccinationData {
 			VaccinationLevel::Fourth => &mut self.fourth_vacc,
 			VaccinationLevel::Fifth => &mut self.fifth_vacc,
 			VaccinationLevel::Sixth => &mut self.sixth_vacc,
+			// we ignore those for now; according to the documentation, those
+			// are vaccinations between the first and the basic level, but
+			// without fulfilling the need for basic; probably because of a
+			// long delay between first and second shot.
+			VaccinationLevel::Partial => return,
 		};
 		let index = ts.date_index(rec.date).expect("date out of range");
 		ts.get_or_create(k)[index] += rec.count;
